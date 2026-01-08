@@ -6,25 +6,23 @@ services:
       POSTGRES_PASSWORD: dualcal
       POSTGRES_DB: dualcal
     ports:
-      - "5432:5432"
+    - 5432:5432
     volumes:
-      - pgdata:/var/lib/postgresql/data
-
+    - pgdata:/var/lib/postgresql/data
   backend:
     build: ./backend
     ports:
-      - "8000:8000"
+    - 8000:8000
     depends_on:
-      - db
+    - db
     environment:
       DATABASE_URL: postgresql+psycopg2://dualcal:dualcal@db:5432/dualcal
-
+      SECRET_KEY: change-this-secret
   frontend:
     build: ./frontend
     ports:
-      - "5173:5173"
+    - 5173:5173
     depends_on:
-      - backend
-
+    - backend
 volumes:
-  pgdata:
+  pgdata: null
