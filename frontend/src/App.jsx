@@ -1,21 +1,33 @@
-import { useEffect, useState } from "react";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import Layout from "./Layout";
+import RequireAuth from "./RequireAuth";
 
-function App() {
-  const [status, setStatus] = useState("Checking backend...");
+import Login from "./pages/Login";
+import Calendar from "./pages/Calendar";
+import Convert from "./pages/Convert";
+import Settings from "./pages/Settings";
+import EventForm from "./pages/EventForm";
 
-  useEffect(() => {
-    fetch("http://localhost:8000/health")
-      .then((r) => r.json())
-      .then((data) => setStatus(`Backend says: ${data.status}`))
-      .catch(() => setStatus("Could not reach backend"));
-  }, []);
-
+export default function App() {
   return (
-    <div style={{ padding: 24 }}>
-      <h1>Dual Calendar</h1>
-      <p>{status}</p>
-    </div>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/login" element={<Login />} />
+
+        <Route
+          element={
+            <RequireAuth>
+              <Layout />
+            </RequireAuth>
+          }
+        >
+          <Route path="/" element={<Calendar />} />
+          <Route path="/convert" element={<Convert />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="/events/new" element={<EventForm />} />
+          <Route path="/events/:id/edit" element={<EventForm />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
   );
 }
-
-export default App;
