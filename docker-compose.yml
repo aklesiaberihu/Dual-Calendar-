@@ -11,6 +11,8 @@ services:
     - pgdata:/var/lib/postgresql/data
   backend:
     build: ./backend
+    volumes:
+      - ./backend:/app
     ports:
     - 8000:8000
     depends_on:
