@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import models  # noqa: F401
 
 from app.db.session import Base, engine
-from app.routers import auth, profile, events
+from app.routers import auth, profile, events, conversion
 
 Base.metadata.create_all(bind=engine)
 
@@ -26,3 +26,4 @@ def health():
 app.include_router(auth.router)
 app.include_router(profile.router)
 app.include_router(events.router)
+app.include_router(conversion.router)
