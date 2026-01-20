@@ -7,6 +7,7 @@ class Event(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    version = Column(Integer, nullable=False, default=1)
 
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
