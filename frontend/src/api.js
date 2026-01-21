@@ -1,98 +1,159 @@
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
+const API_URL = "http://localhost:8000";
 
+// -------------------- token helpers --------------------
 export function getToken() {
-  return localStorage.getItem("token");
+  return (
+    localStorage.getItem("access_token") ||
+    localStorage.getItem("token") ||
+    localStorage.getItem("jwt") ||
+    ""
+  );
 }
+
 export function setToken(token) {
+  if (!token) return;
+  localStorage.setItem("access_token", token);
+  // keep compatibility with older code paths
   localStorage.setItem("token", token);
 }
+
 export function clearToken() {
+  localStorage.removeItem("access_token");
   localStorage.removeItem("token");
+  localStorage.removeItem("jwt");
 }
 
-async function request(path, { method = "GET", body, auth = true } = {}) {
+export function authHeaders() {
   const token = getToken();
-
-  async function doFetch(withAuth) {
-    const headers = {};
-    if (withAuth && token) headers["Authorization"] = `Bearer ${token}`;
-    if (body !== undefined) headers["Content-Type"] = "application/json";
-
-    const res = await fetch(`${API_BASE}${path}`, {
-      method,
-      headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-
-    const text = await res.text();
-    let data = null;
-    try {
-      data = text ? JSON.parse(text) : null;
-    } catch {
-      data = text;
-    }
-
-    return { res, data };
-  }
-
-  // First try
-  let { res, data } = await doFetch(auth);
-
-  // If token is stale and backend rejects it, retry once without auth
-  if ((res.status === 401 || res.status === 403) && auth && token) {
-    clearToken();
-    ({ res, data } = await doFetch(false));
-  }
-
-  if (!res.ok) {
-    const msg = data && data.detail ? data.detail : `Request failed (${res.status})`;
-    throw new Error(msg);
-  }
-
-  return data;
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-/* ---------- Auth ---------- */
-export async function registerUser(payload) {
-  return request("/auth/register", { method: "POST", body: payload });
+function jsonHeaders() {
+  return { "Content-Type": "application/json", ...authHeaders() };
 }
 
+// -------------------- auth --------------------
 export async function loginUser(email, password) {
-  const url = `/auth/login?email=${encodeURIComponent(email)}&password=${encodeURIComponent(password)}`;
-  return request(url, { method: "POST" });
+  const r = await fetch(
+    `${API_URL}/auth/login?email=${encodeURIComponent(email)}&password=${encodeURIComponent(
+      password
+    )}`,
+    { method: "POST" }
+  );
+  if (!r.ok) throw new Error(await r.text());
+  return r.json(); // expected {access_token, token_type}
 }
 
-/* ---------- Profile ---------- */
-export async function getProfile() {
-  return request("/profile");
-}
-export async function updateProfile(payload) {
-  return request("/profile", { method: "PUT", body: payload });
+export async function registerUser(payload) {
+  const r = await fetch(`${API_URL}/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
 }
 
-/* ---------- Events CRUD ---------- */
+// -------------------- events --------------------
 export async function listEvents() {
-  return request("/events");
-}
-export async function getEvent(id) {
-  return request(`/events/${id}`);
-}
-export async function createEvent(payload) {
-  return request("/events", { method: "POST", body: payload });
-}
-export async function updateEvent(id, payload) {
-  return request(`/events/${id}`, { method: "PUT", body: payload });
-}
-export async function deleteEvent(id) {
-  return request(`/events/${id}`, { method: "DELETE" });
+  const r = await fetch(`${API_URL}/events`, { headers: authHeaders() });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
 }
 
-/* ---------- Date Conversion ---------- */
-export async function g2e(year, month, day) {
-  const url = `/convert/gregorian-to-ethiopian?year=${year}&month=${month}&day=${day}`;
-  return request(url, { auth: false });
+export async function getEvent(id) {
+  const r = await fetch(`${API_URL}/events/${id}`, { headers: authHeaders() });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
 }
-export async function e2g(year, month, day) {
-  const url = `/convert/ethiopian-to-gregorian?year=${year}&month=${month}&day=${day}`;
-  return request(url, { auth: false });
+
+export async function createEvent(payload) {
+  const r = await fetch(`${API_URL}/events`, {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
 }
+
+export async function updateEvent(id, payload) {
+  const r = await fetch(`${API_URL}/events/${id}`, {
+    method: "PUT",
+    headers: jsonHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function deleteEvent(id) {
+  const r = await fetch(`${API_URL}/events/${id}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+// -------------------- conversion --------------------
+// these names match your imports: e2g, g2e
+export async function e2g(payload) {
+  const r = await fetch(`${API_URL}/convert/e2g`, {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function g2e(payload) {
+  const r = await fetch(`${API_URL}/convert/g2e`, {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+// keep backward-compat if some page calls convert endpoint differently
+export async function convertDate(payload) {
+  const r = await fetch(`${API_URL}/convert`, {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+// -------------------- profile --------------------
+export async function getProfile() {
+  const r = await fetch(`${API_URL}/profile`, { headers: authHeaders() });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function updateProfile(payload) {
+  const r = await fetch(`${API_URL}/profile`, {
+    method: "PUT",
+    headers: jsonHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+// -------------------- diff --------------------
+export async function getEventDiff(eventId, fromVersion, toVersion) {
+  const r = await fetch(
+    `${API_URL}/events/${eventId}/diff?from_version=${fromVersion}&to_version=${toVersion}`,
+    { headers: authHeaders() }
+  );
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export { API_URL };

@@ -7,6 +7,7 @@ import Calendar from "./pages/Calendar";
 import Convert from "./pages/Convert";
 import Settings from "./pages/Settings";
 import EventForm from "./pages/EventForm";
+import EventDiff from "./pages/EventDiff";
 
 export default function App() {
   return (
@@ -26,6 +27,9 @@ export default function App() {
           <Route path="/settings" element={<Settings />} />
           <Route path="/events/new" element={<EventForm />} />
           <Route path="/events/:id/edit" element={<EventForm />} />
+
+          {/* Diff Viewer */}
+          <Route path="/events/:id/diff" element={<EventDiff />} />
         </Route>
       </Routes>
     </BrowserRouter>
