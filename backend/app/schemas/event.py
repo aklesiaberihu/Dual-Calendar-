@@ -14,6 +14,7 @@ class EventCreate(EventBase):
     pass
 
 class EventUpdate(BaseModel):
+    version: int
     title: Optional[str] = None
     description: Optional[str] = None
     start_time_utc: Optional[datetime] = None
@@ -24,6 +25,7 @@ class EventUpdate(BaseModel):
 class EventOut(EventBase):
     id: int
     user_id: int
+    version: int
 
     class Config:
         from_attributes = True
