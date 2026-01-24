@@ -157,3 +157,14 @@ export async function getEventDiff(eventId, fromVersion, toVersion) {
 }
 
 export { API_URL };
+
+export async function rankEventSlots(eventId, params) {
+  const q = new URLSearchParams(params).toString();
+  const r = await fetch(`${API_URL}/events/${eventId}/rank?${q}`, {
+    headers: authHeaders(),
+  });
+  if (!r.ok) {
+    throw new Error(await r.text());
+  }
+  return r.json();
+}
