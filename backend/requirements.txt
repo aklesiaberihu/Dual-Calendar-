@@ -7,7 +7,8 @@ python-jose[cryptography]
 passlib[bcrypt]
 python-multipart
 ethiopian-date-converter
-
+requests==2.32.3
+pytest==9.0.2
 # Fix passlib/bcrypt compatibility
 
 # Fix passlib/bcrypt compatibility

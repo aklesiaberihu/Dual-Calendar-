@@ -1,0 +1,153 @@
+@startuml Class_Diagram
+title Zemen — Class Diagram
+
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor White
+  BorderColor #333333
+  ArrowColor #333333
+  FontName Arial
+}
+skinparam linetype ortho
+
+' ─────────────────────────────────────────
+'  DATABASE MODELS
+' ─────────────────────────────────────────
+
+class User {
+  + id : Integer <<PK>>
+  + email : String(255) <<UQ>>
+  + full_name : String(255)
+  + preferred_calendar : String(20)
+  + timezone : String(64)
+  + hashed_password : String(255)
+  + google_email : String(255)
+  + google_sub : String(255)
+  + google_access_token : String(2048)
+  + google_refresh_token : String(2048)
+  + google_token_expiry : DateTime
+  + created_at : DateTime
+  + updated_at : DateTime
+}
+
+class Event {
+  + id : Integer <<PK>>
+  + user_id : Integer <<FK>>
+  + version : Integer
+  + title : String(255)
+  + description : Text
+  + start_time_utc : DateTime
+  + end_time_utc : DateTime
+  + timezone : String(64)
+  + reminder_minutes : Integer
+  + created_at : DateTime
+  + updated_at : DateTime
+}
+
+class EventParticipant {
+  + id : Integer <<PK>>
+  + event_id : Integer <<FK>>
+  + user_id : Integer <<FK>>
+  + role : String(16)
+  .. role values ..
+  owner | editor | viewer
+}
+
+class EventSnapshot {
+  + id : Integer <<PK>>
+  + event_id : Integer <<FK>>
+  + version : Integer
+  + title : String
+  + description : String
+  + start_time_utc : String
+  + end_time_utc : String
+  + timezone : String
+  + reminder_minutes : Integer
+  + created_at : DateTime
+}
+
+class Holiday {
+  + id : Integer <<PK>>
+  + name : String(255)
+  + category : String(50)
+  + calendar_type : String(20)
+  + g_year : Integer
+  + g_month : Integer
+  + g_day : Integer
+  + e_year : Integer
+  + e_month : Integer
+  + e_day : Integer
+  + resolved_date : Date
+  + created_at : DateTime
+  + updated_at : DateTime
+}
+
+class ReminderLog {
+  + id : Integer <<PK>>
+  + event_id : Integer <<FK>> <<UQ>>
+  + recipient_email : String(255)
+  + sent_at : DateTime
+}
+
+' ─────────────────────────────────────────
+'  CORE SERVICE CLASSES
+' ─────────────────────────────────────────
+
+class DateConversionService {
+  + gregorian_to_ethiopian(g_date: date) : dict
+  + ethiopian_to_gregorian(year, month, day) : dict
+}
+
+class IntervalService {
+  + normalize(intervals) : List[Tuple]
+  + merge_intervals(intervals) : List[Tuple]
+  + find_gaps(window_start, window_end, busy) : List[Tuple]
+  + choose_slots(gaps, duration_minutes, limit) : List[Tuple]
+}
+
+class RankingService {
+  + in_work_hours(slot_start, work_start_hour, work_end_hour) : bool
+  + slot_conflicts_for_user(busy_intervals, slot) : bool
+  + rank_slots(slots, busy_by_user, required_users, optional_users, ...) : List[dict]
+}
+
+class DiffService {
+  + diff_dicts(old: dict, new: dict) : dict
+}
+
+class SecurityService {
+  + hash_password(password: str) : str
+  + verify_password(password, hashed) : bool
+  + create_access_token(subject: str) : str
+  + get_current_user_email(authorization: str) : str
+}
+
+class ReminderService {
+  - REMINDER_POLL_SECONDS : int = 10
+  + send_email_reminder(to_email, event) : None
+  + reminder_already_logged(db, event_id, recipient_email) : bool
+  + log_reminder_sent(db, event_id, recipient_email) : None
+  + fetch_candidate_events(db, now_utc) : List[Event]
+  + process_reminders_once() : None
+  + reminder_loop() : None
+}
+
+' ─────────────────────────────────────────
+'  RELATIONSHIPS
+' ─────────────────────────────────────────
+
+User "1" --o{ "0..*" Event : "owns"
+User "1" --o{ "0..*" EventParticipant : "participates"
+Event "1" --o{ "0..*" EventParticipant : "has"
+Event "1" --o{ "0..*" EventSnapshot : "audited by"
+Event "1" --o| "0..1" ReminderLog : "reminder tracked by"
+
+Event ..> IntervalService : uses
+Event ..> RankingService : uses
+Event ..> DiffService : uses
+Event ..> DateConversionService : uses
+User ..> SecurityService : uses
+ReminderService ..> ReminderLog : writes
+ReminderService ..> Event : reads
+
+@enduml

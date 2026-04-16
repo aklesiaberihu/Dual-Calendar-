@@ -1,0 +1,63 @@
+@startuml Sequence_Login
+title Zemen — Sequence Diagram: User Authentication (Register & Login)
+
+skinparam sequenceArrowThickness 1.5
+skinparam roundcorner 6
+skinparam sequenceParticipant underline
+skinparam FontName Arial
+
+actor       "User"          as U
+participant "React Frontend" as FE
+participant "FastAPI /auth"  as AUTH
+participant "SecurityService" as SEC
+database    "PostgreSQL"    as DB
+
+== Registration ==
+
+U -> FE : Fill register form\n(email, full_name, password)
+FE -> AUTH : POST /auth/register\n{email, full_name, password}
+AUTH -> SEC : hash_password(password)
+SEC --> AUTH : hashed_password
+AUTH -> DB : INSERT INTO users\n(email, full_name, hashed_password, ...)
+DB --> AUTH : User row
+AUTH --> FE : 201 {id, email}
+FE --> U : "Account created — please sign in"
+
+== Login ==
+
+U -> FE : Enter credentials\n(email, password)
+FE -> AUTH : POST /auth/login?email=...&password=...
+AUTH -> DB : SELECT * FROM users WHERE email=...
+DB --> AUTH : User row (with hashed_password)
+AUTH -> SEC : verify_password(password, hashed_password)
+alt Password valid
+  SEC --> AUTH : True
+  AUTH -> SEC : create_access_token(subject=email)
+  SEC --> AUTH : JWT (expires 60 min)
+  AUTH --> FE : 200 {access_token, token_type}
+  FE -> FE : Store token in localStorage
+  FE --> U : Redirect to /app (Calendar)
+else Password invalid
+  SEC --> AUTH : False
+  AUTH --> FE : 401 Unauthorized
+  FE --> U : "Invalid credentials"
+end
+
+== Authenticated Request ==
+
+U -> FE : Navigate to protected page
+FE -> AUTH : GET /profile\nAuthorization: Bearer <token>
+AUTH -> SEC : get_current_user_email(token)
+alt Token valid
+  SEC --> AUTH : email (subject claim)
+  AUTH -> DB : SELECT * FROM users WHERE email=...
+  DB --> AUTH : User row
+  AUTH --> FE : 200 UserOut
+  FE --> U : Render profile data
+else Token invalid / expired
+  SEC --> AUTH : raise 401
+  AUTH --> FE : 401 Unauthorized
+  FE --> U : Redirect to /login
+end
+
+@enduml

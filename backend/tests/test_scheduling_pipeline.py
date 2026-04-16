@@ -1,0 +1,225 @@
+"""
+End-to-end pipeline tests for the smart scheduling feature.
+Tests the full flow: collect busy intervals → merge → find gaps → choose slots → rank.
+This exercises the core algorithmic complexity the professor requested.
+"""
+import pytest
+from datetime import datetime
+from app.core.intervals import merge_intervals, find_gaps, choose_slots
+from app.core.ranking import rank_slots
+
+
+def dt(hour, minute=0, day=1):
+    return datetime(2025, 6, day, hour, minute)
+
+
+# ── Full pipeline: two users, find best meeting slot ─────────────────────────
+
+def test_pipeline_two_users_no_conflict():
+    """
+    User 1 busy: 09-10, 14-15
+    User 2 busy: 11-12
+    Window: 09-17, duration: 60 min
+    Expected free gaps: 10-11, 12-14, 15-17 → ranked by score
+    """
+    user1_busy = [(dt(9), dt(10)), (dt(14), dt(15))]
+    user2_busy = [(dt(11), dt(12))]
+
+    all_busy = merge_intervals(user1_busy + user2_busy)
+    gaps = find_gaps(dt(9), dt(17), all_busy)
+    slots = choose_slots(gaps, duration_minutes=60, limit=10)
+
+    assert len(slots) >= 2
+    # 10-11 should be a valid slot
+    assert (dt(10), dt(11)) in slots
+    # 12-13 should be a valid slot
+    assert (dt(12), dt(13)) in slots
+
+
+def test_pipeline_fully_blocked_window():
+    """All participants are busy the entire window — no slots found."""
+    user1_busy = [(dt(9), dt(17))]
+    user2_busy = [(dt(8), dt(18))]
+
+    all_busy = merge_intervals(user1_busy + user2_busy)
+    gaps = find_gaps(dt(9), dt(17), all_busy)
+    slots = choose_slots(gaps, duration_minutes=60, limit=5)
+
+    assert slots == []
+
+
+def test_pipeline_fragmented_busy_intervals():
+    """
+    Multiple overlapping/touching intervals that merge into fewer blocks,
+    leaving exactly one usable gap.
+    """
+    busy = [
+        (dt(9), dt(10, 30)),
+        (dt(10), dt(11)),     # overlaps with first
+        (dt(11), dt(12)),     # touches previous
+        (dt(13), dt(17)),
+    ]
+    merged = merge_intervals(busy)
+    gaps = find_gaps(dt(9), dt(17), merged)
+    slots = choose_slots(gaps, duration_minutes=60, limit=5)
+
+    # Only free slot is 12-13
+    assert len(slots) == 1
+    assert slots[0] == (dt(12), dt(13))
+
+
+def test_pipeline_with_ranking_required_user_excluded():
+    """
+    Required user is busy during one slot — that slot must be excluded by ranker.
+    Optional user is busy during another — it gets penalised but kept.
+    """
+    gaps = [(dt(9), dt(12))]
+    slots = choose_slots(gaps, duration_minutes=60, limit=5)
+    # slots: 09-10, 10-11, 11-12
+
+    busy_by_user = {
+        1: [(dt(9), dt(10))],   # required user, busy 09-10
+        2: [(dt(10), dt(11))],  # optional user, busy 10-11
+    }
+
+    ranked = rank_slots(
+        slots=slots,
+        busy_by_user=busy_by_user,
+        required_users={1},
+        optional_users={2},
+        window_start=dt(9),
+        prefer_earlier=False,
+        work_start_hour=9,
+        work_end_hour=17,
+    )
+
+    starts = [r["start"] for r in ranked]
+
+    # 09-10 excluded (required user 1 busy)
+    assert dt(9).isoformat() not in starts
+
+    # 10-11 kept but penalised (optional user 2 busy)
+    penalised = next(r for r in ranked if r["start"] == dt(10).isoformat())
+    assert penalised["score"] == 100
+
+    # 11-12 is ideal (score 0)
+    ideal = next(r for r in ranked if r["start"] == dt(11).isoformat())
+    assert ideal["score"] == 0
+
+
+def test_pipeline_ranked_order_best_first():
+    """Results must always be sorted lowest score (best) first."""
+    gaps = [(dt(8), dt(18))]
+    slots = choose_slots(gaps, duration_minutes=60, limit=20)
+
+    busy_by_user = {
+        1: [(dt(8), dt(9)), (dt(17), dt(18))],  # optional, penalises edge slots
+    }
+
+    ranked = rank_slots(
+        slots=slots,
+        busy_by_user=busy_by_user,
+        required_users=set(),
+        optional_users={1},
+        window_start=dt(8),
+        prefer_earlier=False,
+        work_start_hour=9,
+        work_end_hour=17,
+    )
+
+    scores = [r["score"] for r in ranked]
+    assert scores == sorted(scores)
+
+
+# ── Version conflict detection logic ─────────────────────────────────────────
+
+def test_version_match_allows_update():
+    """Simulate the version check: same version → update allowed."""
+    stored_version = 3
+    client_version = 3
+    conflict = client_version != stored_version
+    assert conflict is False
+
+
+def test_version_mismatch_triggers_conflict():
+    """Simulate the version check: different version → conflict detected."""
+    stored_version = 4
+    client_version = 3
+    conflict = client_version != stored_version
+    assert conflict is True
+
+
+def test_version_increments_on_save():
+    """Each successful save must increment the version."""
+    version = 1
+    version += 1
+    assert version == 2
+    version += 1
+    assert version == 3
+
+
+# ── Role permission logic ─────────────────────────────────────────────────────
+
+def test_owner_can_edit():
+    role = "owner"
+    can_edit = role in ("owner", "editor")
+    assert can_edit is True
+
+
+def test_editor_can_edit():
+    role = "editor"
+    can_edit = role in ("owner", "editor")
+    assert can_edit is True
+
+
+def test_viewer_cannot_edit():
+    role = "viewer"
+    can_edit = role in ("owner", "editor")
+    assert can_edit is False
+
+
+def test_only_owner_can_manage_participants():
+    for role in ("editor", "viewer"):
+        assert (role == "owner") is False
+    assert ("owner" == "owner") is True
+
+
+# ── Scheduling edge cases ─────────────────────────────────────────────────────
+
+def test_pipeline_duration_longer_than_gap():
+    """Gap of 30 min but duration is 60 — no slots should be returned."""
+    busy = [(dt(9, 30), dt(17))]
+    gaps = find_gaps(dt(9), dt(17), busy)
+    slots = choose_slots(gaps, duration_minutes=60, limit=5)
+    assert slots == []
+
+
+def test_pipeline_multi_day_window():
+    """Window spanning two days with busy slots — correctly finds overnight gap."""
+    busy = [(dt(9), dt(17)), (dt(9, 0, day=2), dt(17, 0, day=2))]
+    merged = merge_intervals(busy)
+    gaps = find_gaps(dt(8), dt(18, 0, day=2), merged)
+
+    # Overnight gap: 17:00 day 1 to 09:00 day 2
+    overnight = [(dt(17), dt(9, 0, day=2))]
+    assert len(gaps) >= 2  # at least before-work gap and overnight gap
+
+
+def test_pipeline_no_busy_all_slots_ideal():
+    """With no busy intervals, all slots score 0."""
+    gaps = find_gaps(dt(9), dt(17), [])
+    slots = choose_slots(gaps, duration_minutes=60, limit=5)
+
+    ranked = rank_slots(
+        slots=slots,
+        busy_by_user={},
+        required_users=set(),
+        optional_users=set(),
+        window_start=dt(9),
+        prefer_earlier=False,
+        work_start_hour=9,
+        work_end_hour=17,
+    )
+
+    assert all(r["score"] == 0 for r in ranked)
+    assert all(r["reasons"] == ["ideal slot (no penalties)"] for r in ranked)

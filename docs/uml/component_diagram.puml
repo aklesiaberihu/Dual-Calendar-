@@ -1,0 +1,132 @@
+@startuml Component_Diagram
+title Zemen — Component / Architecture Diagram
+
+skinparam componentStyle rectangle
+skinparam component {
+  BackgroundColor White
+  BorderColor #333333
+  FontName Arial
+}
+skinparam database {
+  BackgroundColor #EEF5FB
+  BorderColor #3498db
+}
+skinparam cloud {
+  BackgroundColor #FDF5E6
+  BorderColor #E67E22
+}
+skinparam linetype ortho
+skinparam ArrowColor #555555
+
+' ─────────────────────────────────────────
+'  FRONTEND (React / Vite — port 5173)
+' ─────────────────────────────────────────
+package "Frontend — React / Vite\n(Docker: port 5173)" {
+
+  [Welcome Page\n/] as WEL
+  [Login Page\n/login] as LOG
+  [Calendar View\n/app] as CAL
+  [Event Form\n/events/new | /:id] as EFO
+  [Date Conversion\n/convert] as CONV
+  [Settings\n/settings] as SET
+
+  [React Router v6] as RR
+  [Axios API Client\n(api.js)] as AX
+  [JWT localStorage] as JWT
+
+  RR --> WEL
+  RR --> LOG
+  RR --> CAL
+  RR --> EFO
+  RR --> CONV
+  RR --> SET
+
+  LOG --> JWT : stores token
+  AX --> JWT : reads token\nfor Bearer header
+}
+
+' ─────────────────────────────────────────
+'  BACKEND (FastAPI — port 8000)
+' ─────────────────────────────────────────
+package "Backend — FastAPI / Python\n(Docker: port 8000)" {
+
+  package "Routers (API Layer)" {
+    [POST /auth/register\nPOST /auth/login] as AUTH_R
+    [GET PUT /profile] as PROF_R
+    [CRUD /events\nshare · participants] as EV_R
+    [GET /convert/*] as CONV_R
+    [GET /events/:id/diff] as DIFF_R
+    [GET /events/:id/conflicts\nGET /events/:id/suggest\nGET /events/:id/rank] as SCHED_R
+    [CRUD /holidays] as HOL_R
+    [GET POST /google/*] as GOOG_R
+  }
+
+  package "Core Services" {
+    [SecurityService\n(JWT · bcrypt)] as SEC
+    [DateConversionService\n(ethiopian_date lib)] as DCS
+    [IntervalService\n(merge · gaps · choose)] as IS
+    [RankingService\n(score · rank)] as RS
+    [DiffService\n(field-level diff)] as DS
+    [ReminderService\n(daemon thread)] as REM
+  }
+
+  package "SQLAlchemy ORM" {
+    [User Model] as UM
+    [Event Model] as EM
+    [EventParticipant Model] as EPM
+    [EventSnapshot Model] as ESM
+    [Holiday Model] as HM
+    [ReminderLog Model] as RLM
+  }
+
+  AUTH_R --> SEC
+  AUTH_R --> UM
+  PROF_R --> UM
+  EV_R --> EM
+  EV_R --> EPM
+  EV_R --> ESM
+  EV_R --> DCS
+  CONV_R --> DCS
+  DIFF_R --> ESM
+  DIFF_R --> DS
+  SCHED_R --> IS
+  SCHED_R --> RS
+  SCHED_R --> EM
+  HOL_R --> HM
+  HOL_R --> DCS
+  GOOG_R --> UM
+  REM --> RLM
+  REM --> EM
+}
+
+' ─────────────────────────────────────────
+'  EXTERNAL SERVICES
+' ─────────────────────────────────────────
+cloud "Google OAuth 2.0\naccounts.google.com" as GOO
+cloud "SMTP Server\n(email reminders)" as SMTP
+database "PostgreSQL 15\n(Docker: port 5432)\n\nusers\nevents\nevent_participants\nevent_snapshots\nholidays\nreminder_logs" as PG
+
+' ─────────────────────────────────────────
+'  CONNECTIONS
+' ─────────────────────────────────────────
+
+AX --> AUTH_R : REST/JSON\nHTTP + CORS
+AX --> PROF_R
+AX --> EV_R
+AX --> CONV_R
+AX --> DIFF_R
+AX --> SCHED_R
+AX --> HOL_R
+AX --> GOOG_R
+
+UM --> PG : SQLAlchemy
+EM --> PG
+EPM --> PG
+ESM --> PG
+HM --> PG
+RLM --> PG
+
+GOOG_R --> GOO : OAuth2 redirect\ntoken exchange
+REM --> SMTP : smtplib\n(TLS)
+
+@enduml

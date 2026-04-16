@@ -1,0 +1,50 @@
+@startuml Sequence_Create_Event
+title Zemen — Sequence Diagram: Create & Share Event
+
+skinparam sequenceArrowThickness 1.5
+skinparam roundcorner 6
+skinparam FontName Arial
+
+actor       "Owner"          as O
+actor       "Participant"     as P
+participant "React Frontend"  as FE
+participant "FastAPI /events" as EV
+participant "DateConversion"  as DC
+database    "PostgreSQL"      as DB
+
+== Create Event ==
+
+O -> FE : Fill event form\n(title, start/end, timezone, reminder)
+FE -> EV : POST /events\nAuthorization: Bearer <token>
+EV -> EV : get_current_user (from JWT)
+EV -> DC : convert local times → UTC
+DC --> EV : start_time_utc, end_time_utc
+EV -> DB : INSERT INTO events\n(user_id, version=1, title, start_time_utc, ...)
+DB --> EV : Event row (id=42)
+EV -> DB : INSERT INTO event_snapshots\n(event_id=42, version=1, ...)
+note right : Snapshot saved for\nversion history / diff
+DB --> EV : Snapshot row
+EV --> FE : 201 {id, title, version=1, ...}
+FE --> O : Event displayed on calendar
+
+== Share Event ==
+
+O -> FE : Open event → Add participant\n(email="bob@example.com", role="editor")
+FE -> EV : POST /events/42/share\n{email, role}
+EV -> DB : SELECT users WHERE email="bob@example.com"
+DB --> EV : User row (id=7)
+EV -> DB : INSERT INTO event_participants\n(event_id=42, user_id=7, role="editor")
+DB --> EV : Participant row
+EV --> FE : 200 {shared: true, user_id: 7, role: "editor"}
+FE --> O : Participant badge shown
+
+== Participant Views Shared Event ==
+
+P -> FE : Login as bob@example.com
+FE -> EV : GET /events?ownership=shared
+EV -> DB : SELECT events JOIN event_participants\nWHERE user_id=7
+DB --> EV : [Event id=42, ...]
+EV --> FE : [{event with role="editor"}, ...]
+FE --> P : Shared events shown on calendar
+
+@enduml

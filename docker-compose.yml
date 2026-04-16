@@ -6,25 +6,52 @@ services:
       POSTGRES_PASSWORD: dualcal
       POSTGRES_DB: dualcal
     ports:
-    - 5432:5432
+      - "5432:5432"
     volumes:
-    - pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dualcal -d dualcal"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   backend:
     build: ./backend
     volumes:
       - ./backend:/app
     ports:
-    - 8000:8000
+      - "8000:8000"
     depends_on:
-    - db
+      db:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgresql+psycopg2://dualcal:dualcal@db:5432/dualcal
       SECRET_KEY: change-this-secret
+      SMTP_HOST: smtp.gmail.com
+      SMTP_PORT: 587
+      SMTP_USERNAME: dualcal.reminders@gmail.com
+      SMTP_PASSWORD: "your-smtp-app-password"
+      SMTP_FROM: dualcal.reminders@gmail.com
+      SMTP_USE_TLS: "true"
+      GOOGLE_CLIENT_ID: "your-google-client-id"
+      GOOGLE_CLIENT_SECRET: "your-google-client-secret"
+      GOOGLE_REDIRECT_URI: "http://localhost:8000/google/callback"
+      GOOGLE_LOGIN_REDIRECT_URI: "http://localhost:8000/auth/google/callback"
+      FRONTEND_URL: "http://localhost:5173"
+
   frontend:
     build: ./frontend
     ports:
-    - 5173:5173
+      - "5173:5173"
     depends_on:
-    - backend
+      - backend
+    environment:
+      - VITE_API_BASE=http://localhost:8000
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    command: npm run dev -- --host 0.0.0.0
+
 volumes:
-  pgdata: null
+  pgdata:
+  frontend_node_modules:

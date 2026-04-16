@@ -59,16 +59,19 @@ def find_gaps(window_start: datetime, window_end: datetime, busy: List[Interval]
 
 def choose_slots(gaps: List[Interval], duration_minutes: int, limit: int) -> List[Interval]:
     """
-    From gaps, pick earliest slots of the given duration.
+    From gaps, generate earliest non-overlapping slots of the given duration,
+    up to the requested limit.
     """
     duration = timedelta(minutes=duration_minutes)
     slots: List[Interval] = []
 
     for s, e in gaps:
-        if e - s >= duration:
-            slot_end = s + duration
-            slots.append((s, slot_end))
+        cursor = s
+
+        while cursor + duration <= e:
+            slots.append((cursor, cursor + duration))
             if len(slots) >= limit:
-                break
+                return slots
+            cursor += duration
 
     return slots

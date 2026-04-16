@@ -1,0 +1,70 @@
+@startuml Sequence_Version_Conflict
+title Zemen — Sequence Diagram: Optimistic Locking & Version Conflict
+
+skinparam sequenceArrowThickness 1.5
+skinparam roundcorner 6
+skinparam FontName Arial
+
+actor       "User A (Editor)"   as UA
+actor       "User B (Editor)"   as UB
+participant "React Frontend A"  as FEA
+participant "React Frontend B"  as FEB
+participant "FastAPI /events"   as EV
+database    "PostgreSQL"        as DB
+
+== Both Users Load Event (version=3) ==
+
+UA -> FEA : Open event id=42
+FEA -> EV : GET /events/42
+EV -> DB : SELECT * FROM events WHERE id=42
+DB --> EV : {id=42, version=3, title="Team Sync"}
+EV --> FEA : {version=3, ...}
+
+UB -> FEB : Open event id=42
+FEB -> EV : GET /events/42
+DB --> EV : {id=42, version=3, title="Team Sync"}
+EV --> FEB : {version=3, ...}
+
+== User B Saves First (succeeds) ==
+
+UB -> FEB : Edit title → "Team Sync Q2"\nSave
+FEB -> EV : PUT /events/42\n{version: 3, title: "Team Sync Q2"}
+EV -> DB : SELECT version FROM events WHERE id=42
+DB --> EV : current_version=3
+note right : client_version(3) == stored(3)\nNo conflict
+EV -> DB : UPDATE events SET\ntitle="Team Sync Q2", version=4\nWHERE id=42
+DB --> EV : OK
+EV -> DB : INSERT INTO event_snapshots\n(event_id=42, version=4, ...)
+DB --> EV : Snapshot saved
+EV --> FEB : 200 {version=4, title="Team Sync Q2"}
+FEB --> UB : Saved successfully
+
+== User A Saves Later (conflict) ==
+
+UA -> FEA : Edit description → "Monthly review"\nSave
+FEA -> EV : PUT /events/42\n{version: 3, description: "Monthly review"}
+EV -> DB : SELECT version FROM events WHERE id=42
+DB --> EV : current_version=4
+note right : client_version(3) != stored(4)\nConflict detected!
+EV --> FEA : 409 Conflict\n{code: "VERSION_CONFLICT",\ncurrent_version: 4,\nyour_version: 3}
+FEA --> UA : "This event was edited by\nsomeone else. Reload to see\nthe latest version."
+
+== User A Reviews Diff & Force-Saves ==
+
+UA -> FEA : Click "View Changes"
+FEA -> EV : GET /events/42/diff?from_version=3&to_version=4
+EV -> DB : SELECT * FROM event_snapshots\nWHERE event_id=42\nAND version IN (3,4)
+DB --> EV : [snapshot v3, snapshot v4]
+EV -> EV : diff_dicts(v3_data, v4_data)
+EV --> FEA : {changes: [{field:"title", from:"Team Sync", to:"Team Sync Q2"}]}
+FEA --> UA : Diff shown
+
+UA -> FEA : Decide to overwrite\n(click Force Save)
+FEA -> EV : PUT /events/42?force=true\n{version: 3, description: "Monthly review"}
+note right : force=True bypasses\nversion check
+EV -> DB : UPDATE events SET\ndescription="Monthly review", version=5
+DB --> EV : OK
+EV --> FEA : 200 {version=5, ...}
+FEA --> UA : Saved with override
+
+@enduml
