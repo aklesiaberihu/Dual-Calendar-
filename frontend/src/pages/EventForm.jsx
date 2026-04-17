@@ -67,8 +67,6 @@ function minutesToDhm(total) {
   return { days: Math.floor(t/1440), hours: Math.floor((t%1440)/60), mins: t%60 };
 }
 
-// ── Icons ─────────────────────────────────────────────────────────────────────
-
 function GoogleIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
@@ -126,8 +124,6 @@ function ArrowLeft() {
     </svg>
   );
 }
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function IntervalPicker({ days, hours, mins, onDays, onHours, onMins, label }) {
   return (
@@ -215,8 +211,6 @@ function ParticipantRow({ email, role, userId, canManage, onRemove }) {
   );
 }
 
-// ── Clean slot card ───────────────────────────────────────────────────────────
-
 function SlotCard({ slot, idx, onApply }) {
   const startTime = formatSlotTime(slot.start_local || slot.start);
   const endTime = formatSlotTime(slot.end_local || slot.end);
@@ -257,8 +251,6 @@ function SlotCard({ slot, idx, onApply }) {
   );
 }
 
-// ── Smart scheduling panel ────────────────────────────────────────────────────
-
 function SmartSchedulingPanel({ onGetEventId, timezone, onApplySlot, participants = [] }) {
   const [rankDurFrom, setRankDurFrom] = useState("09:00");
   const [rankDurTo, setRankDurTo] = useState("10:00");
@@ -287,7 +279,7 @@ function SmartSchedulingPanel({ onGetEventId, timezone, onApplySlot, participant
     try {
       const { eventId, confirmedParticipants } = await onGetEventId();
       if (!eventId) { setRankError("Could not prepare the event. Please add a title first."); setRanking(false); return; }
-      // Use confirmed participant user IDs directly from return value — avoids stale closure
+      
       const requiredIds = confirmedParticipants.map(p => p.user_id).filter(Boolean).join(",");
       const data = await rankEventSlots(Number(eventId), {
         duration_minutes: String(rankDuration),
@@ -354,8 +346,6 @@ function SmartSchedulingPanel({ onGetEventId, timezone, onApplySlot, participant
   );
 }
 
-// ── Event type selector (shown when creating) ─────────────────────────────────
-
 function EventTypeSelector({ onSelect }) {
   return (
     <div className="pageNarrow" style={{ maxWidth:620, margin:"0 auto" }}>
@@ -365,7 +355,7 @@ function EventTypeSelector({ onSelect }) {
       </div>
 
       <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-        {/* Personal */}
+        
         <button
           type="button"
           onClick={() => onSelect("personal")}
@@ -393,7 +383,7 @@ function EventTypeSelector({ onSelect }) {
           </div>
         </button>
 
-        {/* Group */}
+        
         <button
           type="button"
           onClick={() => onSelect("group")}
@@ -421,18 +411,15 @@ function EventTypeSelector({ onSelect }) {
         </button>
       </div>
 
-
     </div>
   );
 }
-
-// ── Main Component ────────────────────────────────────────────────────────────
 
 export default function EventForm() {
   const nav = useNavigate();
   const { id } = useParams();
 
-  // "selector" | "personal" | "group"
+  
   const [eventType, setEventType] = useState(id ? "personal" : "selector");
 
   const [profile, setProfile] = useState(null);
@@ -449,7 +436,7 @@ export default function EventForm() {
   const [eDay, setEDay] = useState("");
   const [timezone, setTimezone] = useState("Europe/Rome");
 
-  // "manual" | "smart" — only for group
+  
   const [timeMode, setTimeMode] = useState("manual");
 
   const [reminderPreset, setReminderPreset] = useState("none");
@@ -501,12 +488,12 @@ export default function EventForm() {
   const canEdit = accessRole === "owner" || accessRole === "editor";
   const canManageParticipants = accessRole === "owner";
 
-  // draftParticipants: confirmed participants fetched from API after draft creation
-  // These have real user_id values that the ranking algorithm needs
+  
+  
   const [draftParticipants, setDraftParticipants] = useState([]);
 
-  // Returns { eventId, confirmedParticipants } so SmartSchedulingPanel
-  // can pass real user IDs to the ranking API without stale closure issues
+  
+  
   async function getOrCreateEventId() {
     if (id) return { eventId: Number(id), confirmedParticipants: participants };
     if (draftEventId) return { eventId: draftEventId, confirmedParticipants: draftParticipants };
@@ -529,12 +516,12 @@ export default function EventForm() {
       });
       setDraftEventId(draft.id);
 
-      // Share with pending participants — silently skip if user not found
+      
       for (const p of pendingParticipants) {
         try { await shareEvent(Number(draft.id), p); } catch { }
       }
 
-      // Fetch confirmed participants with real user_id values from the API
+      
       let confirmedParticipants = [];
       try {
         const fetched = await listEventParticipants(Number(draft.id));
@@ -646,7 +633,7 @@ export default function EventForm() {
       setInitialSnapshot({ title:ev.title||"", description:ev.description||"", start_time_local:ev.start_time_local||"", end_time_local:ev.end_time_local||"", timezone:ev.timezone||"Europe/Rome", reminder_minutes:ev.reminder_minutes??null, version:ev.version });
       setConflictData(null); setShowConflictPanel(false);
       if (ev.user_id===me.id) setAccessRole("owner"); else setAccessRole("viewer");
-      // Determine event type from participants
+      
       await loadParticipants(id, me);
     } catch(e) { setError(e.message||"Failed to load event"); }
   }
@@ -664,7 +651,7 @@ export default function EventForm() {
     if (id) { loadEvent(); setEventType("personal"); }
     else loadCreateContext();
     loadGoogleStatus();
-  }, [id]); // eslint-disable-line
+  }, [id]); 
 
   async function handleGoogleConnect() {
     setGoogleError(""); setGoogleMsg(""); setGoogleLoading(true);
@@ -792,12 +779,12 @@ export default function EventForm() {
   const localChanges = useMemo(()=>getChangedFields(conflictData?.initial,conflictData?.local),[conflictData]);
   const summary = repeatSummary();
 
-  // ── Render: show type selector first when creating ──────────────────────────
+  
   if (eventType === "selector") {
     return <EventTypeSelector onSelect={setEventType}/>;
   }
 
-  // ── Shared date/time section ────────────────────────────────────────────────
+  
   const isGroup = eventType === "group";
 
   function DateTimeSection() {
@@ -812,7 +799,7 @@ export default function EventForm() {
           </p>
         )}
 
-        {/* Mode toggle */}
+        
         {(isGroup || !!id) && (
           <div style={{ display:"flex", gap:8, marginBottom:20 }}>
             {[
@@ -837,12 +824,12 @@ export default function EventForm() {
           </div>
         )}
 
-        {/* Smart scheduling panel */}
+        
         {(isGroup || !!id) && timeMode === "smart" && (
           <SmartSchedulingPanel onGetEventId={getOrCreateEventId} timezone={timezone} onApplySlot={handleApplySlot} participants={[...participants, ...pendingParticipants]}/>
         )}
 
-        {/* Manual time pickers */}
+        
         {(timeMode === "manual" || (!isGroup && !id)) && (
           <div className="stack">
             <div className="segmented" style={{ maxWidth:280 }}>
@@ -874,11 +861,11 @@ export default function EventForm() {
           </div>
         )}
 
-        {/* Timezone + Reminder */}
+        
         <div className="formDivider" style={{ margin:"20px 0 16px" }}/>
         <label className="label" style={{marginBottom:8}}>Timezone<input className="input" value={timezone} onChange={e=>setTimezone(e.target.value)} placeholder="Europe/Rome" disabled={!canEdit}/></label>
 
-        {/* Reminder — styled dropdown matching repeat design */}
+        
         <div style={{ marginTop:4 }}>
           <div style={{ fontSize:"0.78rem", fontWeight:600, color:"var(--muted-2)", marginBottom:8 }}>Reminder</div>
           <div style={{ position:"relative", maxWidth:280 }}>
@@ -899,7 +886,7 @@ export default function EventForm() {
             </svg>
           </div>
 
-          {/* Custom reminder: pick exact datetime */}
+          
           {reminderPreset==="custom" && (
             <div style={{ marginTop:14, display:"flex", flexDirection:"column", gap:8 }}>
               <label className="label" style={{marginBottom:0}}>
@@ -939,9 +926,9 @@ export default function EventForm() {
   return (
     <div className="pageNarrow" style={{ maxWidth:720, margin:"0 auto" }}>
 
-      {/* Header */}
+      
       <div style={{ marginBottom:24 }}>
-        {/* Back to type selector when creating */}
+        
         {!id && (
           <button type="button" className="btn btnGhost btnSm" style={{ marginBottom:14, display:"flex", alignItems:"center", gap:6 }} onClick={() => setEventType("selector")}>
             <ArrowLeft/> Back
@@ -962,7 +949,7 @@ export default function EventForm() {
       <form onSubmit={handleSubmit}>
         <div className="stack">
 
-          {/* 1. Event details */}
+          
           <div className="sectionCard sectionCardPad">
             <h3 className="sectionTitle" style={{marginBottom:18}}>Event details</h3>
             <div className="stack">
@@ -971,7 +958,7 @@ export default function EventForm() {
             </div>
           </div>
 
-          {/* 2. Participants — group only, BEFORE time so smart scheduling knows whose calendars to check */}
+          
           {(isGroup || id) && (canManageParticipants || !id) && (
             <div className="sectionCard sectionCardPad">
               <div className="sectionHead" style={{ alignItems:"center" }}>
@@ -1033,16 +1020,16 @@ export default function EventForm() {
             </div>
           )}
 
-          {/* 3. Date & time — after participants so smart scheduling context is clear */}
+          
           <DateTimeSection/>
 
-          {/* 4. Repeat */}
+          
           {!id && (
             <div className="sectionCard sectionCardPad">
               <h3 className="sectionTitle" style={{marginBottom:18}}>Repeat <span style={{fontSize:"0.75rem",fontWeight:500,color:"var(--muted)",letterSpacing:"0.02em"}}>optional</span></h3>
               <div className="stack">
 
-                {/* Styled dropdown list */}
+                
                 <div style={{ position:"relative", maxWidth:280 }}>
                   <select
                     className="input"
@@ -1061,9 +1048,9 @@ export default function EventForm() {
                   </svg>
                 </div>
 
-                {/* Daily / weekly — no extra options needed, just repeats at that interval */}
+                
 
-                {/* Custom — From / Until datetime pickers, same style as reminder custom */}
+                
                 {repeatType==="custom" && (
                   <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
                     <div style={{ fontSize:"0.78rem", fontWeight:600, color:"var(--muted-2)" }}>Repeat between</div>
@@ -1097,7 +1084,7 @@ export default function EventForm() {
             </div>
           )}
 
-          {/* 5. Google Calendar */}
+          
           <CollapsibleSection title="Google Calendar" defaultOpen={false}>
             <div className="stack">
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
@@ -1124,7 +1111,7 @@ export default function EventForm() {
             </div>
           </CollapsibleSection>
 
-          {/* Actions */}
+          
           <div style={{display:"flex",alignItems:"center",gap:12,paddingTop:4,paddingBottom:24}}>
             {canEdit ? (
               <button className="btn btnPrimary" type="submit" disabled={saving}>

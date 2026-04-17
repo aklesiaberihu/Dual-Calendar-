@@ -24,7 +24,7 @@ def merge_intervals(intervals: List[Interval]) -> List[Interval]:
     merged = [intervals[0]]
     for s, e in intervals[1:]:
         last_s, last_e = merged[-1]
-        if s <= last_e:  # overlap or touch
+        if s <= last_e:
             merged[-1] = (last_s, max(last_e, e))
         else:
             merged.append((s, e))

@@ -12,7 +12,6 @@ class Event(Base):
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
 
-    # Store timestamps in UTC
     start_time_utc = Column(DateTime(timezone=False), nullable=False)
     end_time_utc = Column(DateTime(timezone=False), nullable=True)
 

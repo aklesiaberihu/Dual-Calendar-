@@ -20,7 +20,6 @@ ETH_MONTHS = {
 def gregorian_to_ethiopian(g_date: date) -> dict:
     out = EthiopianDateConverter.to_ethiopian(g_date.year, g_date.month, g_date.day)
 
-    # some versions return tuple, others may return an object
     if isinstance(out, tuple):
         y, m, d = out
     else:
@@ -31,7 +30,6 @@ def gregorian_to_ethiopian(g_date: date) -> dict:
 def ethiopian_to_gregorian(year: int, month: int, day: int) -> dict:
     out = EthiopianDateConverter.to_gregorian(year, month, day)
 
-    # this library returns datetime.date (year/month/day attributes)
     if isinstance(out, tuple):
         y, m, d = out
     else:

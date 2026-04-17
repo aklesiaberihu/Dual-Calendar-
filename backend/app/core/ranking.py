@@ -44,7 +44,6 @@ def rank_slots(
         reasons = []
         score = 0
 
-        # Required users: must be free
         invalid = False
         for uid in required_users:
             if slot_conflicts_for_user(busy_by_user.get(uid, []), slot):
@@ -53,21 +52,18 @@ def rank_slots(
         if invalid:
             continue
 
-        # Optional users: prefer free
         for uid in optional_users:
             if slot_conflicts_for_user(busy_by_user.get(uid, []), slot):
                 score += 100
                 reasons.append(f"optional user {uid} is busy (+100)")
 
-        # Work hours preference
         if not in_work_hours(s, work_start_hour, work_end_hour):
             score += 30
             reasons.append(f"outside work hours (+30)")
 
-        # Prefer earlier preference
         if prefer_earlier:
             minutes_from_start = int((s - window_start).total_seconds() // 60)
-            score += max(0, minutes_from_start // 10)  # small penalty per 10 min
+            score += max(0, minutes_from_start // 10)
             reasons.append(f"earlier preference penalty: +{max(0, minutes_from_start // 10)}")
 
         ranked.append({

@@ -4,7 +4,6 @@ from sqlalchemy.orm import Session
 from app.models.holiday import Holiday
 from app.core.date_conversion import ethiopian_to_gregorian
 
-
 GREGORIAN_TEMPLATES = [
     {"name": "New Year's Day", "category": "public", "month": 1, "day": 1},
     {"name": "Epiphany", "category": "religious", "month": 1, "day": 6},
@@ -27,7 +26,6 @@ ETHIOPIAN_TEMPLATES = [
     {"name": "Genna", "category": "religious", "month": 4, "day": 29},
     {"name": "Timkat", "category": "religious", "month": 5, "day": 11},
 ]
-
 
 def holiday_exists(
     db: Session,
@@ -63,7 +61,6 @@ def holiday_exists(
 
     return db.query(query.exists()).scalar()
 
-
 def ensure_gregorian_year(db: Session, year: int):
     inserted = 0
 
@@ -98,7 +95,6 @@ def ensure_gregorian_year(db: Session, year: int):
 
     if inserted > 0:
         db.commit()
-
 
 def ensure_ethiopian_year(db: Session, e_year: int):
     inserted = 0
@@ -136,15 +132,12 @@ def ensure_ethiopian_year(db: Session, e_year: int):
     if inserted > 0:
         db.commit()
 
-
 def seed_default_holidays(db: Session):
-    # small startup seed around "now", just so the app is not empty on first run
     for year in range(2024, 2029):
         ensure_gregorian_year(db, year)
 
     for e_year in range(2016, 2021):
         ensure_ethiopian_year(db, e_year)
-
 
 def ensure_holiday_years_for_range(
     db: Session,
@@ -154,12 +147,9 @@ def ensure_holiday_years_for_range(
     if from_year > to_year:
         from_year, to_year = to_year, from_year
 
-    # Gregorian fixed holidays for each requested Gregorian year
     for year in range(from_year, to_year + 1):
         ensure_gregorian_year(db, year)
 
-    # Ethiopian calendar years that could map into that Gregorian range.
-    # Loose safe mapping: Ethiopian year is roughly Gregorian year - 7 or - 8.
     candidate_ethiopian_years = set()
     for year in range(from_year, to_year + 1):
         candidate_ethiopian_years.add(year - 8)

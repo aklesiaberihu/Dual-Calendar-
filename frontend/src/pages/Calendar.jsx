@@ -102,7 +102,6 @@ function GoogleIcon() {
   return <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>;
 }
 
-/* ── Event Popover ── */
 function EventPopover({ ev, anchor, participants, accessRole, loading, googleStatus, onClose, onDelete, onGoogleExport, onGoogleConnect }) {
   const popoverRef = useRef(null);
   const [style, setStyle] = useState({ opacity: 0 });
@@ -124,7 +123,7 @@ function EventPopover({ ev, anchor, participants, accessRole, loading, googleSta
     if (top + ph > vh - 10) top = vh - ph - 10;
     if (top < 10) top = 10;
     setStyle({ opacity: 1, left, top });
-  }, [anchor, loading]); // re-calc after content loads
+  }, [anchor, loading]); 
 
   if (!ev) return null;
   const canEdit = accessRole === "owner" || accessRole === "editor";
@@ -162,10 +161,10 @@ function EventPopover({ ev, anchor, participants, accessRole, loading, googleSta
         boxShadow: "0 20px 60px rgba(0,0,0,0.65), 0 0 0 1px rgba(139,92,246,0.14)",
         overflow: "hidden", transition: "opacity 0.15s ease", ...style,
       }}>
-        {/* accent bar */}
+        
         <div style={{ height: 3, background: "var(--accent)" }} />
 
-        {/* header */}
+        
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8, padding: "12px 14px 10px", borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: "0.66rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--accent)", marginBottom: 3 }}>Event</div>
@@ -176,14 +175,14 @@ function EventPopover({ ev, anchor, participants, accessRole, loading, googleSta
           </button>
         </div>
 
-        {/* loading shimmer */}
+        
         {loading && (
           <div style={{ padding: "14px", display: "flex", alignItems: "center", gap: 8, color: "var(--muted)", fontSize: "0.82rem" }}>
             <span className="spinner" style={{ width: 14, height: 14 }} /> Loading details…
           </div>
         )}
 
-        {/* detail rows */}
+        
         {!loading && (
           <div style={{ padding: "6px 0 4px" }}>
             {rows.map(row => (
@@ -195,7 +194,7 @@ function EventPopover({ ev, anchor, participants, accessRole, loading, googleSta
           </div>
         )}
 
-        {/* participants */}
+        
         {!loading && participants.length > 0 && (
           <div style={{ padding: "8px 14px 10px", borderTop: "1px solid rgba(255,255,255,0.07)" }}>
             <div style={{ fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--muted)", marginBottom: 6 }}>Participants</div>
@@ -218,7 +217,7 @@ function EventPopover({ ev, anchor, participants, accessRole, loading, googleSta
           </div>
         )}
 
-        {/* Google export row */}
+        
         {!loading && (
           <div style={{ padding: "8px 14px", borderTop: "1px solid rgba(255,255,255,0.07)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             {googleStatus?.connected ? (
@@ -245,7 +244,7 @@ function EventPopover({ ev, anchor, participants, accessRole, loading, googleSta
           </div>
         )}
 
-        {/* action buttons */}
+        
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "10px 14px", borderTop: "1px solid rgba(255,255,255,0.07)" }}>
           {canDelete ? (
             <button className="btn btnSm btnDanger" onClick={() => { onDelete(ev.id); onClose(); }}>Delete</button>
@@ -270,7 +269,6 @@ function EventPopover({ ev, anchor, participants, accessRole, loading, googleSta
   );
 }
 
-/* ── Holiday Popover ── */
 function HolidayPopover({ holiday, anchor, onClose }) {
   const popoverRef = useRef(null);
   const [style, setStyle] = useState({ opacity: 0 });
@@ -487,8 +485,6 @@ function DayView({ year, monthIndex, dayOfMonth, eventsByDay, holidaysByDay, onE
   );
 }
 
-// ── Main Calendar Component ──────────────────────────────────────────────────
-
 export default function Calendar() {
   const [events, setEvents] = useState([]);
   const [allEvents, setAllEvents] = useState([]);
@@ -497,8 +493,8 @@ export default function Calendar() {
   const [currentUser, setCurrentUser] = useState(null);
   const [googleStatus, setGoogleStatus] = useState(null);
 
-  // Popover state
-  const [selectedEvent, setSelectedEvent] = useState(null);   // full event object (updated after fetch)
+  
+  const [selectedEvent, setSelectedEvent] = useState(null);   
   const [eventAnchor, setEventAnchor] = useState(null);
   const [popoverParticipants, setPopoverParticipants] = useState([]);
   const [popoverAccessRole, setPopoverAccessRole] = useState("viewer");
@@ -526,7 +522,7 @@ export default function Calendar() {
 
   const grid = useMemo(() => buildMonthGrid(year, monthIndex), [year, monthIndex]);
 
-  // Load user profile + google status once
+  
   useEffect(() => {
     getProfile().then(setCurrentUser).catch(() => {});
     getGoogleStatus().then(setGoogleStatus).catch(() => {});
@@ -554,7 +550,7 @@ export default function Calendar() {
     finally { setLoading(false); }
   }
 
-  useEffect(() => { load(); }, [year, monthIndex]); // eslint-disable-line
+  useEffect(() => { load(); }, [year, monthIndex]); 
   useEffect(() => { if (searchOpen && searchInputRef.current) searchInputRef.current.focus(); }, [searchOpen]);
 
   const eventsByDay = useMemo(() => {
@@ -623,9 +619,9 @@ export default function Calendar() {
     catch (e) { window.alert(e.message||"Failed to delete event"); }
   }
 
-  // Open event: show basic info immediately, fetch full details + participants in bg
+  
   async function openEvent(ev, rect) {
-    setSelectedEvent(ev);        // show basic info right away
+    setSelectedEvent(ev);        
     setEventAnchor(rect);
     setSelectedHoliday(null);
     setPopoverParticipants([]);
@@ -633,18 +629,18 @@ export default function Calendar() {
     setPopoverLoading(true);
 
     try {
-      // Fetch full event details + participants in parallel
+      
       const [fullEv, participants] = await Promise.all([
         getEvent(ev.id),
         listEventParticipants(ev.id),
       ]);
 
-      setSelectedEvent(fullEv);   // replace with full details (has reminder_minutes, description)
+      setSelectedEvent(fullEv);   
 
       const list = Array.isArray(participants) ? participants : [];
       setPopoverParticipants(list);
 
-      // Determine access role
+      
       if (currentUser) {
         const mine = list.find(p => (p.email ?? p.user_email ?? "").toLowerCase() === (currentUser.email || "").toLowerCase());
         if (mine) setPopoverAccessRole(mine.role);
@@ -652,7 +648,7 @@ export default function Calendar() {
         else setPopoverAccessRole("viewer");
       }
     } catch {
-      // fallback — just show what we have
+      
       if (currentUser && ev.user_id === currentUser.id) setPopoverAccessRole("owner");
     } finally {
       setPopoverLoading(false);
@@ -695,7 +691,7 @@ export default function Calendar() {
   return (
     <div className="page" style={{ position: "relative" }}>
 
-      {/* Toolbar */}
+      
       <div className="calBar">
         <div className="calBarLeft">
           <h2 className="calBigLabel">{monthLabel()}</h2>
@@ -727,7 +723,7 @@ export default function Calendar() {
         </div>
       </div>
 
-      {/* Search panel */}
+      
       {showSearchPanel&&(
         <div className="calSearchPanel">
           <div className="calSearchPanelHead">{searchResults.length} result{searchResults.length!==1?"s":""} for "{searchText}"</div>

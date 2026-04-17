@@ -5,7 +5,6 @@ from datetime import date
 CalendarType = Literal["gregorian", "ethiopian"]
 HolidayCategory = Literal["public", "religious", "cultural"]
 
-
 class HolidayCreate(BaseModel):
     name: str
     category: HolidayCategory = "public"
@@ -18,7 +17,6 @@ class HolidayCreate(BaseModel):
     e_year: Optional[int] = None
     e_month: Optional[int] = None
     e_day: Optional[int] = None
-
 
 class HolidayOut(BaseModel):
     id: int

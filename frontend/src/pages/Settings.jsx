@@ -153,7 +153,7 @@ export default function Settings() {
       {profile && (
         <div className="stack">
 
-          {/* Profile card */}
+          
           <div className="sectionCard sectionCardPad">
             <div className="settingsProfileRow">
               <Avatar email={profile.email} />
@@ -170,11 +170,11 @@ export default function Settings() {
             </div>
           </div>
 
-          {/* Single unified form */}
+          
           <div className="sectionCard sectionCardPad">
             <div className="stack">
 
-              {/* Personal information */}
+              
               <div>
                 <div className="sectionHead" style={{ marginBottom: 14 }}>
                   <h3 className="sectionTitle">Personal information</h3>
@@ -199,7 +199,7 @@ export default function Settings() {
 
               <div className="formDivider"/>
 
-              {/* Workspace defaults */}
+              
               <div>
                 <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:14 }}>
                   <CalIcon/>
@@ -256,7 +256,7 @@ export default function Settings() {
 
               <div className="formDivider"/>
 
-              {/* Google Calendar */}
+              
               <div>
                 <div className="sectionHead" style={{ marginBottom: 14, alignItems:"center" }}>
                   <div style={{ display:"flex", alignItems:"center", gap:8 }}>
@@ -329,7 +329,7 @@ export default function Settings() {
 
               <div className="formDivider"/>
 
-              {/* Actions */}
+              
               <div className="settingsSaveRow">
                 {msg && <div className="alert alertSuccess" style={{ flex:1 }}>{msg}</div>}
                 <div className="formActions">

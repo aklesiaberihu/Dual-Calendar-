@@ -16,13 +16,11 @@ from app.schemas.participants import ShareEventIn
 
 router = APIRouter(prefix="/events", tags=["events"])
 
-
 def get_current_user(db: Session, email: str) -> User:
     user = db.query(User).filter(User.email == email).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
-
 
 def snapshot_event(db: Session, event: Event):
     snap = EventSnapshot(
@@ -37,7 +35,6 @@ def snapshot_event(db: Session, event: Event):
     )
     db.add(snap)
 
-
 def utc_to_local(utc_dt, timezone_str: str):
     if not utc_dt:
         return None
@@ -51,7 +48,6 @@ def utc_to_local(utc_dt, timezone_str: str):
         .astimezone(tz)
         .replace(tzinfo=None)
     )
-
 
 def serialize_event(event: Event):
     start_local = utc_to_local(event.start_time_utc, event.timezone)
@@ -71,7 +67,6 @@ def serialize_event(event: Event):
         "reminder_minutes": event.reminder_minutes,
     }
 
-
 def get_event_with_access(db: Session, user: User, event_id: int):
     event = db.query(Event).filter(Event.id == event_id).first()
     if not event:
@@ -90,16 +85,13 @@ def get_event_with_access(db: Session, user: User, event_id: int):
 
     return event, participant.role
 
-
 def require_editor_or_owner(role: str):
     if role not in ("owner", "editor"):
         raise HTTPException(status_code=403, detail="You do not have permission to modify this event")
 
-
 def require_owner(role: str):
     if role != "owner":
         raise HTTPException(status_code=403, detail="Only the owner can perform this action")
-
 
 def recurrence_step(rule: str):
     if rule == "daily":
@@ -107,7 +99,6 @@ def recurrence_step(rule: str):
     if rule == "weekly":
         return timedelta(weeks=1)
     return None
-
 
 def local_to_utc(local_dt, timezone_str: str):
     try:
@@ -117,7 +108,6 @@ def local_to_utc(local_dt, timezone_str: str):
 
     aware_local = local_dt.replace(tzinfo=tz)
     return aware_local.astimezone(timezone.utc).replace(tzinfo=None)
-
 
 @router.post("")
 def create_event(
@@ -178,7 +168,6 @@ def create_event(
     db.refresh(first_event)
     return serialize_event(first_event)
 
-
 @router.get("")
 def list_events(
     q: str = Query("", description="search title/description"),
@@ -227,13 +216,11 @@ def list_events(
     events = query.order_by(Event.start_time_utc.asc()).all()
     return [serialize_event(event) for event in events]
 
-
 @router.get("/{event_id}")
 def get_event(event_id: int, db: Session = Depends(get_db), email: str = Depends(get_current_user_email)):
     user = get_current_user(db, email)
     event, _role = get_event_with_access(db, user, event_id)
     return serialize_event(event)
-
 
 @router.put("/{event_id}")
 def update_event(
@@ -303,7 +290,6 @@ def update_event(
 
     return serialize_event(event)
 
-
 @router.delete("/{event_id}")
 def delete_event(event_id: int, db: Session = Depends(get_db), email: str = Depends(get_current_user_email)):
     user = get_current_user(db, email)
@@ -313,7 +299,6 @@ def delete_event(event_id: int, db: Session = Depends(get_db), email: str = Depe
     db.delete(event)
     db.commit()
     return {"deleted": True, "event_id": event_id}
-
 
 @router.post("/{event_id}/share")
 def share_event(event_id: int, payload: ShareEventIn, db: Session = Depends(get_db), email: str = Depends(get_current_user_email)):
@@ -342,7 +327,6 @@ def share_event(event_id: int, payload: ShareEventIn, db: Session = Depends(get_
     db.commit()
     return {"shared": True, "event_id": event_id, "user_id": target.id, "role": payload.role}
 
-
 @router.get("/{event_id}/participants")
 def list_participants(event_id: int, db: Session = Depends(get_db), email: str = Depends(get_current_user_email)):
     user = get_current_user(db, email)
@@ -369,7 +353,6 @@ def list_participants(event_id: int, db: Session = Depends(get_db), email: str =
         })
 
     return result
-
 
 @router.delete("/{event_id}/participants/{user_id}")
 def remove_participant(event_id: int, user_id: int, db: Session = Depends(get_db), email: str = Depends(get_current_user_email)):

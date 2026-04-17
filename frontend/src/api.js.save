@@ -1,0 +1,130 @@
+const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
+
+// ---------------- Token helpers (matches existing imports) ----------------
+export function getToken() {
+  return localStorage.getItem("token") || localStorage.getItem("access_token");
+}
+
+export function setToken(token) {
+  localStorage.setItem("token", token);
+  localStorage.setItem("access_token", token);
+}
+
+export function clearToken() {
+  localStorage.removeItem("token");
+  localStorage.removeItem("access_token");
+}
+
+// ---------------- Error parsing ----------------
+async function parseError(res) {
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {}
+
+  if (data) {
+    const detail = data.detail ?? data.message ?? data.error;
+
+    if (typeof detail === "string") return detail;
+
+    if (Array.isArray(detail)) {
+      const msgs = detail
+        .map((e) => (e && e.msg ? e.msg : JSON.stringify(e)))
+        .join("; ");
+      return msgs || JSON.stringify(data);
+    }
+
+    if (typeof detail === "object") return JSON.stringify(detail);
+
+    return JSON.stringify(data);
+  }
+
+  return `${res.status} ${res.statusText}`;
+}
+
+// ---------------- Generic request helper ----------------
+async function request(path, { method = "GET", body, auth = true } = {}) {
+  const headers = { "Content-Type": "application/json" };
+
+  if (auth) {
+    const token = getToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  if (!res.ok) {
+    const msg = await parseError(res);
+
+    if (res.status === 409 && !msg.toLowerCase().includes("version conflict")) {
+      throw new Error(`Version conflict: ${msg}`);
+    }
+
+    throw new Error(msg);
+  }
+
+  const text = await res.text();
+  return text ? JSON.parse(text) : {};
+}
+
+// ---------------- Auth (matches existing imports) ----------------
+export async function loginUser(email, password) {
+  const res = await fetch(
+    `${API_BASE}/auth/login?email=${encodeURIComponent(email)}&password=${encodeURIComponent(password)}`,
+    { method: "POST" }
+  );
+  if (!res.ok) throw new Error(await parseError(res));
+  return await res.json(); // { access_token: "..." }
+}
+
+exregisterUser(email, password) {
+  return request("/auth/register", {
+  kkkkkkk¨¨¨¨ÿyyyyy]]]]]]]]]^^^^YYYY
+
+// Keep compatibility if anything imports login()
+export async function login(email, password) {
+  return loginUser(email, password);
+}
+
+// ---------------- Profile (matches Settings.jsx imports) ----------------
+export function getProfile() {
+  return request("/profile", { auth: true });
+}
+
+export function updateProfile(payload) {
+  return request("/profile", { method: "PUT", body: payload, auth: true });
+}
+
+// ---------------- Events ----------------
+export function listEvents() {
+  return request("/events", { auth: true });
+}
+
+export function getEvent(id) {
+  return request(`/events/${id}`, { auth: true });
+}
+
+export function createEvent(payload) {
+  return request("/events", { method: "POST", body: payload, auth: true });
+}
+
+export function updateEvent(id, payload) {
+  return request(`/events/${id}`, { method: "PUT", body: payload, auth: true });
+}
+
+export function deleteEvent(id) {
+  return request(`/events/${id}`, { method: "DELETE", auth: true });
+}
+
+// ---------------- Conversion ----------------
+export function e2g(year, month, day) {
+  return request(`/convert/e2g?year=${year}&month=${month}&day=${day}`, { auth: false });
+}
+
+export function g2e(year, month, day) {
+  return request(`/convert/g2e?year=${year}&month=${month}&day=${day}`, { auth: false });
+}

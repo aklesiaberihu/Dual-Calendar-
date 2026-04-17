@@ -12,7 +12,6 @@ class EventParticipant(Base):
     event_id = Column(Integer, ForeignKey("events.id", ondelete="CASCADE"), nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
 
-    # roles: owner/editor/viewer
     role = Column(String(16), nullable=False, default="viewer")
 
     user = relationship("User")

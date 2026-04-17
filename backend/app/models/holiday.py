@@ -1,7 +1,6 @@
 from sqlalchemy import Column, Integer, String, Date, DateTime, func
 from app.db.session import Base
 
-
 class Holiday(Base):
     __tablename__ = "holidays"
 
@@ -9,7 +8,7 @@ class Holiday(Base):
 
     name = Column(String(255), nullable=False)
     category = Column(String(50), nullable=False, default="public")
-    calendar_type = Column(String(20), nullable=False)  # gregorian | ethiopian
+    calendar_type = Column(String(20), nullable=False)
 
     g_year = Column(Integer, nullable=True)
     g_month = Column(Integer, nullable=True)

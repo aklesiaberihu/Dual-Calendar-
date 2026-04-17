@@ -100,7 +100,7 @@ export default function Login() {
 
   return (
     <div className="loginShell">
-      {/* Left — branding only */}
+      
       <div className="loginLeft">
         <div className="loginLeftInner">
           <div className="loginBrand">
@@ -115,13 +115,13 @@ export default function Login() {
             <p className="loginHeroSub">
               Zemen combines Ethiopian and Gregorian calendar support with
               collaborative event management, conflict detection, and smart
-              scheduling — all in one workspace.
+              scheduling all in one workspace.
             </p>
           </div>
         </div>
       </div>
 
-      {/* Right — form only */}
+      
       <div className="loginRight">
         <div className="loginCard">
           <div className="loginCardHead">

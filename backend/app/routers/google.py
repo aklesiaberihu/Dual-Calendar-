@@ -37,7 +37,6 @@ SCOPES = [
 
 REQUIRED_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events"
 
-
 def require_google_config():
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET or not GOOGLE_REDIRECT_URI:
         raise HTTPException(
@@ -45,13 +44,11 @@ def require_google_config():
             detail="Google OAuth environment variables are not configured",
         )
 
-
 def get_current_user(db: Session, email: str) -> User:
     user = db.query(User).filter(User.email == email).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
-
 
 def get_event_with_access(db: Session, user: User, event_id: int):
     event = db.query(Event).filter(Event.id == event_id).first()
@@ -74,11 +71,9 @@ def get_event_with_access(db: Session, user: User, event_id: int):
 
     return event
 
-
 def ensure_google_connected(user: User):
     if not user.google_access_token:
         raise HTTPException(status_code=400, detail="Google Calendar is not connected")
-
 
 def ensure_calendar_scope(user: User):
     """
@@ -96,7 +91,6 @@ def ensure_calendar_scope(user: User):
             ),
         )
 
-
 def build_google_auth_url(state: str):
     params = {
         "client_id": GOOGLE_CLIENT_ID,
@@ -113,7 +107,6 @@ def build_google_auth_url(state: str):
     print("[GOOGLE CONNECT URL]", auth_url)
     return auth_url
 
-
 def exchange_code_for_tokens(code: str):
     resp = requests.post(
         GOOGLE_TOKEN_URL,
@@ -129,7 +122,6 @@ def exchange_code_for_tokens(code: str):
     if not resp.ok:
         raise HTTPException(status_code=400, detail=f"Google token exchange failed: {resp.text}")
     return resp.json()
-
 
 def refresh_google_access_token(user: User, db: Session):
     if not user.google_refresh_token:
@@ -165,7 +157,6 @@ def refresh_google_access_token(user: User, db: Session):
     db.refresh(user)
     return user.google_access_token
 
-
 def get_valid_google_access_token(user: User, db: Session):
     ensure_google_connected(user)
 
@@ -178,7 +169,6 @@ def get_valid_google_access_token(user: User, db: Session):
 
     return user.google_access_token
 
-
 def fetch_google_userinfo(access_token: str):
     resp = requests.get(
         GOOGLE_USERINFO_URL,
@@ -189,12 +179,10 @@ def fetch_google_userinfo(access_token: str):
         raise HTTPException(status_code=400, detail=f"Google userinfo failed: {resp.text}")
     return resp.json()
 
-
 def utc_naive_to_rfc3339_in_timezone(utc_dt, timezone_str: str):
     tz = ZoneInfo(timezone_str or "UTC")
     local_dt = utc_dt.replace(tzinfo=timezone.utc).astimezone(tz)
     return local_dt.isoformat()
-
 
 @router.get("/status")
 def google_status(
@@ -213,7 +201,6 @@ def google_status(
         "google_token_scope": user.google_token_scope,
     }
 
-
 @router.post("/connect-url")
 def google_connect_url(
     db: Session = Depends(get_db),
@@ -227,7 +214,6 @@ def google_connect_url(
     db.commit()
 
     return {"auth_url": build_google_auth_url(state)}
-
 
 @router.get("/callback")
 def google_callback(
@@ -257,7 +243,6 @@ def google_callback(
     expires_in = int(token_data.get("expires_in", 3600))
     scope = token_data.get("scope", "")
 
-    # Warn if calendar scope was not granted
     if REQUIRED_CALENDAR_SCOPE not in scope:
         print("[GOOGLE WARNING] calendar.events scope was NOT granted. Export will not work.")
 
@@ -275,12 +260,10 @@ def google_callback(
 
     db.commit()
 
-    # Tell the frontend whether calendar scope was actually granted
     if REQUIRED_CALENDAR_SCOPE not in scope:
         return RedirectResponse(url=f"{FRONTEND_URL}?google=connected&calendar_scope=missing")
 
     return RedirectResponse(url=f"{FRONTEND_URL}?google=connected&calendar_scope=granted")
-
 
 @router.post("/disconnect")
 def google_disconnect(
@@ -310,7 +293,6 @@ def google_disconnect(
     db.commit()
 
     return {"disconnected": True}
-
 
 @router.post("/export-event/{event_id}")
 def export_event_to_google(

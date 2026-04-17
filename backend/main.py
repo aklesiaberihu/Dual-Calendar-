@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import threading
 
-from app import models  # noqa: F401
+from app import models
 from app.db.session import Base, engine, SessionLocal
 from app.routers import auth, profile, events, conversion, diff, holidays, google
 from app.routers import scheduling
@@ -29,7 +29,6 @@ app.add_middleware(
 
 reminder_thread = None
 
-
 @app.on_event("startup")
 def startup_event():
     global reminder_thread
@@ -37,11 +36,9 @@ def startup_event():
         reminder_thread = threading.Thread(target=reminder_loop, daemon=True)
         reminder_thread.start()
 
-
 @app.get("/health")
 def health():
     return {"status": "ok"}
-
 
 app.include_router(auth.router)
 app.include_router(profile.router)

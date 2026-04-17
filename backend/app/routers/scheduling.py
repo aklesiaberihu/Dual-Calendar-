@@ -16,13 +16,11 @@ from app.core.ranking import rank_slots
 
 router = APIRouter(prefix="/events", tags=["scheduling"])
 
-
 def get_current_user(db: Session, email: str) -> User:
     user = db.query(User).filter(User.email == email).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
-
 
 def ensure_event_access(db: Session, user: User, event_id: int):
     event = db.query(Event).filter(Event.id == event_id).first()
@@ -42,7 +40,6 @@ def ensure_event_access(db: Session, user: User, event_id: int):
 
     return event
 
-
 def get_event_participants(db: Session, event: Event):
     owner = db.query(User).filter(User.id == event.user_id).first()
     participants = [{
@@ -61,16 +58,13 @@ def get_event_participants(db: Session, event: Event):
 
     return participants
 
-
 def events_user_can_see(db: Session, user_id: int):
-    # Fixed: use scalar_subquery() instead of subquery() for .in_() compatibility
     shared_ids = (
         db.query(EventParticipant.event_id)
         .filter(EventParticipant.user_id == user_id)
         .scalar_subquery()
     )
     return db.query(Event).filter((Event.user_id == user_id) | (Event.id.in_(shared_ids)))
-
 
 def holiday_intervals(db: Session, window_start: datetime, window_end: datetime) -> List[Tuple[datetime, datetime]]:
     start_date = window_start.date()
@@ -94,7 +88,6 @@ def holiday_intervals(db: Session, window_start: datetime, window_end: datetime)
         intervals.append((s, e))
 
     return intervals
-
 
 def busy_intervals_for_user(
     db: Session,
@@ -123,11 +116,9 @@ def busy_intervals_for_user(
             continue
         intervals.append((s, e))
 
-    # Treat holidays as all-day busy intervals for everyone
     intervals.extend(holiday_intervals(db, window_start, window_end))
 
     return intervals
-
 
 def parse_ids(csv: str) -> Set[int]:
     if not csv:
@@ -142,7 +133,6 @@ def parse_ids(csv: str) -> Set[int]:
                 pass
     return out
 
-
 def resolve_timezone(display_timezone: str | None, event: Event) -> str:
     tz_name = display_timezone or event.timezone or "UTC"
     try:
@@ -151,12 +141,10 @@ def resolve_timezone(display_timezone: str | None, event: Event) -> str:
     except Exception:
         raise HTTPException(status_code=400, detail=f"Invalid timezone: {tz_name}")
 
-
 def as_utc(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=ZoneInfo("UTC"))
     return dt.astimezone(ZoneInfo("UTC"))
-
 
 def format_dt_pair(dt: datetime, tz_name: str):
     utc_dt = as_utc(dt)
@@ -166,7 +154,6 @@ def format_dt_pair(dt: datetime, tz_name: str):
         "local": local_dt.isoformat(),
     }
 
-
 def format_interval(start: datetime, end: datetime, tz_name: str):
     return {
         "start_utc": as_utc(start).isoformat(),
@@ -174,7 +161,6 @@ def format_interval(start: datetime, end: datetime, tz_name: str):
         "start_local": as_utc(start).astimezone(ZoneInfo(tz_name)).isoformat(),
         "end_local": as_utc(end).astimezone(ZoneInfo(tz_name)).isoformat(),
     }
-
 
 @router.get("/{event_id}/conflicts")
 def conflicts_for_participants(
@@ -218,7 +204,6 @@ def conflicts_for_participants(
         "conflicts": conflicts,
     }
 
-
 @router.get("/{event_id}/suggest")
 def suggest_time_slots(
     event_id: int,
@@ -260,7 +245,6 @@ def suggest_time_slots(
         "suggested_slots": [format_interval(s, e, tz_name) for s, e in slots],
     }
 
-
 @router.get("/{event_id}/rank")
 def rank_time_slots(
     event_id: int,
@@ -294,7 +278,6 @@ def rank_time_slots(
     tz_name = resolve_timezone(display_timezone, event)
     participants = get_event_participants(db, event)
 
-    # Build busy intervals per user
     all_busy: List[Tuple[datetime, datetime]] = []
     busy_by_user = {}
     for p in participants:
@@ -303,17 +286,13 @@ def rank_time_slots(
         busy_by_user[uid] = merge_intervals(intervals)
         all_busy.extend(busy_by_user[uid])
 
-    # Find free slots: merge all busy, find gaps, generate candidates
     merged_busy = merge_intervals(all_busy)
     gaps = find_gaps(window_start_utc, window_end_utc, merged_busy)
     candidates = choose_slots(gaps, duration_minutes=duration_minutes, limit=candidate_limit)
 
-    # Parse required / optional user ID sets
     required = parse_ids(required_user_ids)
     optional = parse_ids(optional_user_ids)
 
-    # If no explicit required/optional provided, treat ALL participants as required
-    # This ensures the ranking actually enforces everyone's availability
     if not required and not optional:
         required = {p["user_id"] for p in participants}
 

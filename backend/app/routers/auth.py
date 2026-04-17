@@ -15,7 +15,6 @@ from app.core.security import hash_password, verify_password, create_access_toke
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-
 @router.post("/register")
 def register(payload: UserCreate, db: Session = Depends(get_db)):
     if db.query(User).filter(User.email == payload.email).first():
@@ -34,7 +33,6 @@ def register(payload: UserCreate, db: Session = Depends(get_db)):
     db.refresh(user)
     return {"id": user.id, "email": user.email}
 
-
 @router.post("/login")
 def login(email: str, password: str, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == email).first()
@@ -42,7 +40,6 @@ def login(email: str, password: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     return {"access_token": create_access_token(user.email), "token_type": "bearer"}
-
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
@@ -65,14 +62,12 @@ GOOGLE_LOGIN_SCOPES = [
 GOOGLE_LOGIN_STATES: dict[str, datetime] = {}
 GOOGLE_LOGIN_STATE_TTL_MINUTES = 10
 
-
 def require_google_login_config():
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET or not GOOGLE_LOGIN_REDIRECT_URI:
         raise HTTPException(
             status_code=500,
             detail="Google login environment variables are not configured",
         )
-
 
 def cleanup_google_login_states():
     now = datetime.now(timezone.utc)
@@ -83,7 +78,6 @@ def cleanup_google_login_states():
     ]
     for state in expired:
         GOOGLE_LOGIN_STATES.pop(state, None)
-
 
 def build_google_login_auth_url(state: str) -> str:
     params = {
@@ -97,7 +91,6 @@ def build_google_login_auth_url(state: str) -> str:
         "state": state,
     }
     return f"{GOOGLE_AUTH_URL}?{urlencode(params)}"
-
 
 def exchange_google_login_code_for_tokens(code: str) -> dict:
     resp = requests.post(
@@ -118,7 +111,6 @@ def exchange_google_login_code_for_tokens(code: str) -> dict:
         )
     return resp.json()
 
-
 def fetch_google_userinfo(access_token: str) -> dict:
     resp = requests.get(
         GOOGLE_USERINFO_URL,
@@ -132,7 +124,6 @@ def fetch_google_userinfo(access_token: str) -> dict:
         )
     return resp.json()
 
-
 @router.get("/google/login-url")
 def google_login_url():
     require_google_login_config()
@@ -142,7 +133,6 @@ def google_login_url():
     GOOGLE_LOGIN_STATES[state] = datetime.now(timezone.utc)
 
     return {"auth_url": build_google_login_auth_url(state)}
-
 
 @router.get("/google/callback")
 def google_callback(

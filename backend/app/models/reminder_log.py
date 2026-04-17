@@ -1,7 +1,6 @@
 from sqlalchemy import Column, Integer, DateTime, ForeignKey, func, String
 from app.db.session import Base
 
-
 class ReminderLog(Base):
     __tablename__ = "reminder_logs"
 

@@ -12,13 +12,11 @@ from app.core.seed_holidays import ensure_holiday_years_for_range
 
 router = APIRouter(prefix="/holidays", tags=["holidays"])
 
-
 def get_current_user(db: Session, email: str) -> User:
     user = db.query(User).filter(User.email == email).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
-
 
 def resolve_holiday_date(payload: HolidayCreate) -> date:
     if payload.calendar_type == "gregorian":
@@ -41,7 +39,6 @@ def resolve_holiday_date(payload: HolidayCreate) -> date:
         return date(converted["year"], converted["month"], converted["day"])
 
     raise HTTPException(status_code=400, detail="Unsupported calendar_type")
-
 
 @router.post("", response_model=HolidayOut)
 def create_holiday(
@@ -70,7 +67,6 @@ def create_holiday(
     db.commit()
     db.refresh(holiday)
     return holiday
-
 
 @router.get("", response_model=list[HolidayOut])
 def list_holidays(
@@ -102,7 +98,6 @@ def list_holidays(
 
     holidays = query.order_by(Holiday.resolved_date.asc(), Holiday.name.asc()).all()
     return holidays
-
 
 @router.delete("/{holiday_id}")
 def delete_holiday(

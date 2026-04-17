@@ -11,14 +11,12 @@ from app.models.event import Event
 from app.models.user import User
 from app.models.reminder_log import ReminderLog
 
-
 SMTP_HOST = os.getenv("SMTP_HOST", "")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USERNAME = os.getenv("SMTP_USERNAME", "")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USERNAME)
 SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
-
 
 def send_email_reminder(to_email: str, subject: str, body: str):
     if not SMTP_HOST or not SMTP_USERNAME or not SMTP_PASSWORD or not SMTP_FROM:
@@ -36,10 +34,8 @@ def send_email_reminder(to_email: str, subject: str, body: str):
         server.login(SMTP_USERNAME, SMTP_PASSWORD)
         server.send_message(msg)
 
-
 def build_email_subject(event: Event) -> str:
     return f"Dual Calendar Reminder: {event.title}"
-
 
 def build_email_body(event: Event, user: User) -> str:
     return (
@@ -52,7 +48,6 @@ def build_email_body(event: Event, user: User) -> str:
         f"Reminder: {event.reminder_minutes} minute(s) before\n\n"
         f"Sent by Dual Calendar."
     )
-
 
 def process_due_reminders_once():
     db: Session = SessionLocal()
@@ -131,7 +126,6 @@ def process_due_reminders_once():
         print(f"[REMINDER EMAIL ERROR] {e}", flush=True)
     finally:
         db.close()
-
 
 async def reminder_loop():
     while True:

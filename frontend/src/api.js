@@ -1,6 +1,5 @@
 const API_URL = "http://localhost:8000";
 
-// -------------------- token helpers --------------------
 export function getToken() {
   return (
     localStorage.getItem("access_token") ||
@@ -49,7 +48,6 @@ async function parseError(r) {
   throw err;
 }
 
-// -------------------- auth --------------------
 export async function loginUser(email, password) {
   const r = await fetch(
     `${API_URL}/auth/login?email=${encodeURIComponent(email)}&password=${encodeURIComponent(
@@ -77,7 +75,6 @@ export async function getGoogleLoginUrl() {
   return r.json();
 }
 
-// -------------------- events --------------------
 export async function listEvents(filters = {}) {
   const params = new URLSearchParams();
 
@@ -144,7 +141,6 @@ export async function deleteEvent(id) {
   return r.json();
 }
 
-// -------------------- event sharing --------------------
 export async function listEventParticipants(eventId) {
   const r = await fetch(`${API_URL}/events/${eventId}/participants`, {
     headers: authHeaders(),
@@ -172,7 +168,6 @@ export async function removeEventParticipant(eventId, userId) {
   return r.json();
 }
 
-// -------------------- conversion --------------------
 export async function e2g(payload) {
   const q = new URLSearchParams({
     year: String(payload.year),
@@ -215,7 +210,6 @@ export async function convertDate(payload) {
   throw new Error("Unsupported conversion request");
 }
 
-// -------------------- profile --------------------
 export async function getProfile() {
   const r = await fetch(`${API_URL}/profile`, { headers: authHeaders() });
   if (!r.ok) await parseError(r);
@@ -232,7 +226,6 @@ export async function updateProfile(payload) {
   return r.json();
 }
 
-// -------------------- diff --------------------
 export async function getEventDiff(eventId, fromVersion, toVersion) {
   const r = await fetch(
     `${API_URL}/events/${eventId}/diff?from_version=${fromVersion}&to_version=${toVersion}`,
@@ -242,7 +235,6 @@ export async function getEventDiff(eventId, fromVersion, toVersion) {
   return r.json();
 }
 
-// -------------------- ranking --------------------
 export async function rankEventSlots(eventId, params) {
   const q = new URLSearchParams(params).toString();
   const r = await fetch(`${API_URL}/events/${eventId}/rank?${q}`, {
@@ -252,7 +244,6 @@ export async function rankEventSlots(eventId, params) {
   return r.json();
 }
 
-// -------------------- google calendar --------------------
 export async function getGoogleStatus() {
   const r = await fetch(`${API_URL}/google/status`, {
     headers: authHeaders(),
@@ -289,5 +280,4 @@ export async function exportEventToGoogle(eventId) {
 }
 
 export { API_URL };
-
 

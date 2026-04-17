@@ -12,13 +12,10 @@ from app.models.event import Event
 from app.models.user import User
 from app.models.reminder_log import ReminderLog
 
-
 REMINDER_POLL_SECONDS = 10
-
 
 def utc_now():
     return datetime.now(timezone.utc)
-
 
 def ensure_utc(dt: datetime | None) -> datetime | None:
     if dt is None:
@@ -26,7 +23,6 @@ def ensure_utc(dt: datetime | None) -> datetime | None:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)
-
 
 def get_smtp_settings():
     return {
@@ -37,7 +33,6 @@ def get_smtp_settings():
         "from_email": os.getenv("SMTP_FROM", ""),
         "use_tls": os.getenv("SMTP_USE_TLS", "true").lower() == "true",
     }
-
 
 def smtp_is_configured() -> bool:
     cfg = get_smtp_settings()
@@ -50,7 +45,6 @@ def smtp_is_configured() -> bool:
             cfg["from_email"],
         ]
     )
-
 
 def send_email_reminder(to_email: str, event: Event):
     cfg = get_smtp_settings()
@@ -88,7 +82,6 @@ def send_email_reminder(to_email: str, event: Event):
             server.login(cfg["username"], cfg["password"])
             server.send_message(msg)
 
-
 def reminder_already_logged(db: Session, event_id: int, recipient_email: str) -> bool:
     existing = (
         db.query(ReminderLog)
@@ -100,7 +93,6 @@ def reminder_already_logged(db: Session, event_id: int, recipient_email: str) ->
     )
     return existing is not None
 
-
 def log_reminder_sent(db: Session, event_id: int, recipient_email: str):
     db.add(
         ReminderLog(
@@ -110,7 +102,6 @@ def log_reminder_sent(db: Session, event_id: int, recipient_email: str):
         )
     )
     db.commit()
-
 
 def fetch_candidate_events(db: Session, now_utc: datetime):
     window_start = now_utc - timedelta(minutes=2)
@@ -125,7 +116,6 @@ def fetch_candidate_events(db: Session, now_utc: datetime):
         .order_by(Event.start_time_utc.asc())
         .all()
     )
-
 
 def process_reminders_once():
     db = SessionLocal()
@@ -182,7 +172,6 @@ def process_reminders_once():
 
     finally:
         db.close()
-
 
 def reminder_loop():
     print("[REMINDER SYSTEM] startup")
