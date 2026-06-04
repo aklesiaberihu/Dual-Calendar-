@@ -1,0 +1,86 @@
+@startuml Activity_ConstraintRanking
+title Zemen — Activity Diagram: Constraint-Based Slot Ranking
+
+skinparam activity {
+  BackgroundColor White
+  BorderColor #333333
+  ArrowColor #333333
+  FontName Arial
+}
+skinparam ActivityDiamondBackgroundColor #EEF5FB
+skinparam ActivityDiamondBorderColor #3498db
+skinparam ActivityStartColor #2ECC71
+skinparam ActivityEndColor #E74C3C
+
+start
+
+:Input:\n• candidate_slots: list of (start, end)\n• busy_by_user: {user_id → [(start,end), ...]}\n• required_users: set of user_ids\n• optional_users: set of user_ids\n• window_start: datetime\n• work_start_hour, work_end_hour: int\n• prefer_earlier: bool;
+
+:ranked = [];
+
+repeat
+  :Take next candidate slot S\n(start, end);
+
+  :penalty = 0;
+  :reasons = [];
+
+  ' ── Required users ─────────────────────────────────────────────────────
+  :Check every required user R;
+  repeat
+    :busy_intervals = busy_by_user[R];
+    if (slot_conflicts_for_user(busy_intervals, S)?) then (conflict)
+      :EXCLUDE this slot entirely\n(skip — do not add to ranked);
+      note right: Hard constraint:\nRequired user busy → slot invalid
+      break
+    else (free)
+    endif
+  repeat while (more required users?)
+
+  if (slot was excluded?) then (yes)
+    :continue to next slot;
+  else (no — all required users free)
+
+    ' ── Optional users ───────────────────────────────────────────────────
+    :Check every optional user O;
+    repeat
+      :busy_intervals = busy_by_user[O];
+      if (slot_conflicts_for_user(busy_intervals, S)?) then (conflict)
+        :penalty += 100;
+        :reasons.append("optional user busy");
+      else (free)
+      endif
+    repeat while (more optional users?)
+
+    ' ── Work hours ───────────────────────────────────────────────────────
+    if (NOT in_work_hours(S.start,\nwork_start_hour, work_end_hour)?) then (outside)
+      :penalty += 30;
+      :reasons.append("outside work hours");
+    else (inside)
+    endif
+
+    ' ── Earliness ─────────────────────────────────────────────────────────
+    if (prefer_earlier == True?) then (yes)
+      :minutes_from_start =\n(S.start - window_start).total_seconds() / 60;
+      :penalty += int(minutes_from_start / 10);
+      note right: Slots earlier in the\nwindow score lower (better)
+    else (no)
+    endif
+
+    ' ── Append result ────────────────────────────────────────────────────
+    if (reasons is empty?) then (yes)
+      :reasons = ["ideal slot"];
+    else (no)
+    endif
+
+    :ranked.append({\n  start: S.start,\n  end: S.end,\n  score: penalty,\n  reasons: reasons\n});
+
+  endif
+
+repeat while (more candidate slots?)
+
+:Sort ranked by score ascending\n(lower score = better);
+
+:Return top-N ranked slots\nto API caller;
+stop
+
+@enduml

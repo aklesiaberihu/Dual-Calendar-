@@ -1,5 +1,7 @@
-@startuml Class_Diagram
-title Zemen — Class Diagram
+@startuml ZemenClassDiagram
+!define ABSTRACT abstract
+!define INTERFACE interface
+title Zemen Dual Calendar — Enriched Class Diagram
 
 skinparam classAttributeIconSize 0
 skinparam class {
@@ -11,143 +13,259 @@ skinparam class {
 skinparam linetype ortho
 
 ' ─────────────────────────────────────────
-'  DATABASE MODELS
+'  DATA MODELS (Persistence Layer)
 ' ─────────────────────────────────────────
 
 class User {
-  + id : Integer <<PK>>
-  + email : String(255) <<UQ>>
-  + full_name : String(255)
-  + preferred_calendar : String(20)
-  + timezone : String(64)
-  + hashed_password : String(255)
-  + google_email : String(255)
-  + google_sub : String(255)
-  + google_access_token : String(2048)
-  + google_refresh_token : String(2048)
-  + google_token_expiry : DateTime
-  + created_at : DateTime
-  + updated_at : DateTime
+  - id : int <<PK>>
+  - email : str(255) <<UQ, IX>>
+  - full_name : str(255)
+  - preferred_calendar : str(20) = "gregorian"
+  - timezone : str(64) = "UTC"
+  - language : str(32) = "en"
+  - hashed_password : str(255)
+  - google_email : str(255)
+  - google_sub : str(255) <<IX>>
+  - google_access_token : str(2048)
+  - google_refresh_token : str(2048)
+  - google_token_expiry : datetime
+  - google_oauth_state : str(255)
+  - google_connected_at : datetime
+  - created_at : datetime
+  - updated_at : datetime
+  --
+  + register(email: str, password: str, full_name: str) : User
+  + login(email: str, password: str) : bool
+  + login_google(google_token: str) : User
+  + update_profile(full_name: str, timezone: str, calendar: str) : void
+  + change_password(old: str, new: str) : bool
+  + get_events(ownership: str = "all") : List[Event]
+  + get_shared_events() : List[Event]
+  + disconnect_google() : void
 }
 
 class Event {
-  + id : Integer <<PK>>
-  + user_id : Integer <<FK>>
-  + version : Integer
-  + title : String(255)
-  + description : Text
-  + start_time_utc : DateTime
-  + end_time_utc : DateTime
-  + timezone : String(64)
-  + reminder_minutes : Integer
-  + created_at : DateTime
-  + updated_at : DateTime
+  - id : int <<PK>>
+  - user_id : int <<FK, IX>>
+  - version : int = 1
+  - title : str(255)
+  - description : text
+  - start_time_utc : datetime
+  - end_time_utc : datetime
+  - timezone : str(64) = "UTC"
+  - reminder_minutes : int = 60
+  - created_at : datetime
+  - updated_at : datetime
+  --
+  + create(user_id: int, title: str, start_local: datetime, ...) : Event
+  + serialize() : dict
+  + serialize_with_local_time(tz: str) : dict
+  + update(version: int, **kwargs) : Event
+  + delete() : bool
+  + check_version_conflict(provided_version: int) : bool
+  + increment_version() : void
+  + get_participants() : List[EventParticipant]
+  + get_snapshots() : List[EventSnapshot]
+  + share_with(target_user_id: int, role: str) : EventParticipant
+  + remove_participant(user_id: int) : bool
+  + get_owner() : User
 }
 
 class EventParticipant {
-  + id : Integer <<PK>>
-  + event_id : Integer <<FK>>
-  + user_id : Integer <<FK>>
-  + role : String(16)
-  .. role values ..
-  owner | editor | viewer
+  - id : int <<PK>>
+  - event_id : int <<FK, IX>>
+  - user_id : int <<FK, IX>>
+  - role : str(16) = "viewer"
+  - __table_args__ : UniqueConstraint(event_id, user_id)
+  --
+  + values : {OWNER="owner", EDITOR="editor", VIEWER="viewer"}
+  + get_user() : User
+  + get_event() : Event
+  + update_role(new_role: str) : void
+  + can_edit() : bool
+  + can_view() : bool
 }
 
 class EventSnapshot {
-  + id : Integer <<PK>>
-  + event_id : Integer <<FK>>
-  + version : Integer
-  + title : String
-  + description : String
-  + start_time_utc : String
-  + end_time_utc : String
-  + timezone : String
-  + reminder_minutes : Integer
-  + created_at : DateTime
+  - id : int <<PK>>
+  - event_id : int <<FK, IX>>
+  - version : int
+  - title : str(255)
+  - description : text
+  - start_time_utc : str
+  - end_time_utc : str
+  - timezone : str(64)
+  - reminder_minutes : int
+  - created_at : datetime
+  --
+  + create_from_event(event: Event) : EventSnapshot
+  + restore_to_event() : Event
+  + get_diff_from_previous() : dict
+  + get_event() : Event
 }
 
 class Holiday {
-  + id : Integer <<PK>>
-  + name : String(255)
-  + category : String(50)
-  + calendar_type : String(20)
-  + g_year : Integer
-  + g_month : Integer
-  + g_day : Integer
-  + e_year : Integer
-  + e_month : Integer
-  + e_day : Integer
-  + resolved_date : Date
-  + created_at : DateTime
-  + updated_at : DateTime
+  - id : int <<PK>>
+  - name : str(255)
+  - category : str(50) = "public"
+  - calendar_type : str(20)
+  - g_year : int
+  - g_month : int
+  - g_day : int
+  - e_year : int
+  - e_month : int
+  - e_day : int
+  - resolved_date : date <<IX>>
+  - created_at : datetime
+  - updated_at : datetime
+  --
+  + is_holiday(check_date: date) : bool
+  + get_gregorian_date() : date
+  + get_ethiopian_date() : dict
+  + in_range(start: date, end: date) : List[Holiday]
 }
 
 class ReminderLog {
-  + id : Integer <<PK>>
-  + event_id : Integer <<FK>> <<UQ>>
-  + recipient_email : String(255)
-  + sent_at : DateTime
+  - id : int <<PK>>
+  - event_id : int <<FK, UQ, IX>>
+  - recipient_email : str(255)
+  - sent_at : datetime
+  --
+  + get_event() : Event
+  + get_recipient() : User
+  + was_sent_recently(minutes: int) : bool
 }
 
 ' ─────────────────────────────────────────
-'  CORE SERVICE CLASSES
+'  SERVICE LAYER (Business Logic)
 ' ─────────────────────────────────────────
 
 class DateConversionService {
-  + gregorian_to_ethiopian(g_date: date) : dict
-  + ethiopian_to_gregorian(year, month, day) : dict
+  - {static} EPOCH_YEAR_DIFF : int = 8
+  --
+  + {static} gregorian_to_ethiopian(g_date: date) : dict
+  + {static} ethiopian_to_gregorian(year: int, month: int, day: int) : dict
+  + {static} gregorian_date_string_to_ethiopian(date_str: str) : dict
+  + {static} validate_ethiopian_date(year: int, month: int, day: int) : bool
 }
 
 class IntervalService {
-  + normalize(intervals) : List[Tuple]
-  + merge_intervals(intervals) : List[Tuple]
-  + find_gaps(window_start, window_end, busy) : List[Tuple]
-  + choose_slots(gaps, duration_minutes, limit) : List[Tuple]
+  --
+  + {static} normalize(intervals: List[Tuple]) : List[Tuple]
+  + {static} merge_intervals(intervals: List[Tuple]) : List[Tuple]
+  + {static} find_gaps(window_start: datetime, window_end: datetime, busy: List[Tuple]) : List[Tuple]
+  + {static} choose_slots(gaps: List[Tuple], duration_minutes: int, limit: int) : List[Tuple]
+  + {static} overlaps(a_start: datetime, a_end: datetime, b_start: datetime, b_end: datetime) : bool
+  - {static} _is_valid_interval(start, end) : bool
 }
 
 class RankingService {
-  + in_work_hours(slot_start, work_start_hour, work_end_hour) : bool
-  + slot_conflicts_for_user(busy_intervals, slot) : bool
-  + rank_slots(slots, busy_by_user, required_users, optional_users, ...) : List[dict]
+  - {static} DEFAULT_WORK_START : int = 9
+  - {static} DEFAULT_WORK_END : int = 17
+  --
+  + {static} rank_slots(slots: List[Tuple], busy_by_user: dict, required_users: List[int], optional_users: List[int], constraints: dict) : List[dict]
+  + {static} in_work_hours(slot_start: datetime, work_start_h: int, work_end_h: int) : bool
+  + {static} conflicts_for_user(busy: List[Tuple], slot_start: datetime, slot_end: datetime) : bool
+  + {static} score_slot(slot: Tuple, busy_by_user: dict, required: List[int], optional: List[int], constraints: dict) : int
+  + {static} apply_constraint(score: int, constraint_name: str, constraint_value) : int
 }
 
 class DiffService {
-  + diff_dicts(old: dict, new: dict) : dict
+  --
+  + {static} diff_dicts(old: dict, new: dict) : dict
+  + {static} get_only_differences(old: dict, new: dict) : dict
 }
 
 class SecurityService {
-  + hash_password(password: str) : str
-  + verify_password(password, hashed) : bool
-  + create_access_token(subject: str) : str
-  + get_current_user_email(authorization: str) : str
+  - {static} ALGORITHM : str = "HS256"
+  - {static} TOKEN_EXPIRE_MINUTES : int = 1440
+  --
+  + {static} hash_password(password: str) : str
+  + {static} verify_password(plain: str, hashed: str) : bool
+  + {static} create_access_token(subject: str, expires_delta: timedelta = None) : str
+  + {static} decode_token(token: str) : dict
+  + {static} get_current_user_email(token: str) : str
 }
 
 class ReminderService {
-  - REMINDER_POLL_SECONDS : int = 10
-  + send_email_reminder(to_email, event) : None
-  + reminder_already_logged(db, event_id, recipient_email) : bool
-  + log_reminder_sent(db, event_id, recipient_email) : None
-  + fetch_candidate_events(db, now_utc) : List[Event]
-  + process_reminders_once() : None
-  + reminder_loop() : None
+  - {static} REMINDER_POLL_SECONDS : int = 10
+  - {static} logger : Logger
+  --
+  + {static} send_email_reminder(to_email: str, event: Event) : bool
+  + {static} reminder_already_logged(db: Session, event_id: int, recipient_email: str) : bool
+  + {static} log_reminder_sent(db: Session, event_id: int, recipient_email: str) : void
+  + {static} fetch_candidate_events(db: Session, now_utc: datetime) : List[Event]
+  + {static} process_reminders_once() : void
+  + {static} reminder_loop() : void
+  + {static} _get_smtp_settings() : dict
+  + {static} _smtp_is_configured() : bool
+}
+
+class SchedulingService {
+  - {static} DEFAULT_DURATION_MINUTES : int = 60
+  --
+  + {static} event_end_time(start: datetime, end: datetime) : datetime
+  + {static} suggest_meeting_slots(busy_intervals: List[Tuple], window_start: datetime, window_end: datetime, duration: int) : List[Tuple]
+  + {static} suggest_with_multiple_users(users_busy: dict, required_users: List[int], window_start: datetime, window_end: datetime, duration: int) : List[Tuple]
 }
 
 ' ─────────────────────────────────────────
-'  RELATIONSHIPS
+'  RELATIONSHIPS (Association, Dependency)
 ' ─────────────────────────────────────────
 
-User "1" --o{ "0..*" Event : "owns"
-User "1" --o{ "0..*" EventParticipant : "participates"
-Event "1" --o{ "0..*" EventParticipant : "has"
-Event "1" --o{ "0..*" EventSnapshot : "audited by"
-Event "1" --o| "0..1" ReminderLog : "reminder tracked by"
+User "1" --o{ "0..*" Event : "owns\n(user_id)"
+User "1" --o{ "0..*" EventParticipant : "participates_in\n(user_id)"
 
-Event ..> IntervalService : uses
-Event ..> RankingService : uses
-Event ..> DiffService : uses
-Event ..> DateConversionService : uses
-User ..> SecurityService : uses
-ReminderService ..> ReminderLog : writes
-ReminderService ..> Event : reads
+Event "1" --o{ "0..*" EventParticipant : "has\n(event_id)"
+Event "1" --o{ "1..*" EventSnapshot : "audited_by\n(event_id)"
+Event "0..1" --o| "0..1" ReminderLog : "tracked_by\n(event_id)"
+EventParticipant "0..*" --> "1" User : user_id
+EventParticipant "0..*" --> "1" Event : event_id
+EventSnapshot --> "1" Event : references
+
+Holiday ......> DateConversionService : uses
+Event ......> DateConversionService : converts_times
+Event ......> SecurityService : enforces_auth
+Event ......> DiffService : version_diff
+Event ......> IntervalService : scheduling
+Event ......> SchedulingService : suggest_slots
+SchedulingService ......> IntervalService : uses
+ReminderService ......> ReminderLog : logs_sent
+ReminderService ......> Event : queries
+RankingService ......> SchedulingService : ranks_suggestions
+
+note right of User
+  Authentication entry point
+  Supports both password & OAuth
+  Maintains timezone preferences
+end note
+
+note right of Event
+  Core domain entity
+  Immutable via optimistic locking (version)
+  Auditable via EventSnapshot
+  Inherently multi-user (participants)
+end note
+
+note right of EventParticipant
+  Join table with role-based access
+  Roles: owner (creator, full control)
+           editor (modify, share)
+           viewer (read-only)
+end note
+
+note right of ReminderService
+  Async background service
+  Polls every 10s for due reminders
+  Sends via SMTP, logs sent status
+  Reliability: uses proper logging module
+end note
+
+note right of DateConversionService
+  Pure algorithmic conversion
+  No I/O, testable in isolation
+  Used in multiple callsites
+  (event serialization, scheduling, UI)
+end note
 
 @enduml

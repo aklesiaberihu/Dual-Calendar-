@@ -1,5 +1,6 @@
 import os
 import secrets
+import logging
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
@@ -14,6 +15,8 @@ from app.db.session import get_db
 from app.models.event import Event
 from app.models.event_participant import EventParticipant
 from app.models.user import User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/google", tags=["google"])
 
@@ -103,8 +106,8 @@ def build_google_auth_url(state: str):
         "state": state,
     }
     auth_url = f"{GOOGLE_AUTH_URL}?{urlencode(params)}"
-    print("[GOOGLE CONNECT REQUESTED SCOPES]", params["scope"])
-    print("[GOOGLE CONNECT URL]", auth_url)
+    logger.info("Google connect requested scopes: %s", params["scope"])
+    logger.debug("Google connect URL: %s", auth_url)
     return auth_url
 
 def exchange_code_for_tokens(code: str):
@@ -144,8 +147,8 @@ def refresh_google_access_token(user: User, db: Session):
         raise HTTPException(status_code=401, detail=f"Google token refresh failed: {resp.text}")
 
     data = resp.json()
-    print("[GOOGLE REFRESH TOKEN RESPONSE]", data)
-    print("[GOOGLE REFRESH TOKEN RESPONSE SCOPE]", data.get("scope"))
+    logger.debug("Google refresh token response: %s", data)
+    logger.debug("Google refresh token scope: %s", data.get("scope"))
 
     user.google_access_token = data["access_token"]
     expires_in = int(data.get("expires_in", 3600))
@@ -235,8 +238,8 @@ def google_callback(
         return RedirectResponse(url=f"{FRONTEND_URL}?google=error&reason=invalid_state")
 
     token_data = exchange_code_for_tokens(code)
-    print("[GOOGLE TOKEN RESPONSE]", token_data)
-    print("[GOOGLE TOKEN RESPONSE SCOPE]", token_data.get("scope"))
+    logger.debug("Google token response: %s", token_data)
+    logger.debug("Google token scope: %s", token_data.get("scope"))
 
     access_token = token_data["access_token"]
     refresh_token = token_data.get("refresh_token")
@@ -244,7 +247,7 @@ def google_callback(
     scope = token_data.get("scope", "")
 
     if REQUIRED_CALENDAR_SCOPE not in scope:
-        print("[GOOGLE WARNING] calendar.events scope was NOT granted. Export will not work.")
+        logger.warning("Google calendar.events scope was NOT granted. Export will not work.")
 
     profile = fetch_google_userinfo(access_token)
 
@@ -307,7 +310,7 @@ def export_event_to_google(
     access_token = get_valid_google_access_token(user, db)
     ensure_calendar_scope(user)
 
-    print("[GOOGLE EXPORT STORED SCOPE]", user.google_token_scope)
+    logger.debug("Google export stored scope: %s", user.google_token_scope)
 
     start_utc = event.start_time_utc
     end_utc = event.end_time_utc or (event.start_time_utc + timedelta(hours=1))
@@ -325,7 +328,7 @@ def export_event_to_google(
         },
     }
 
-    print("[GOOGLE EXPORT PAYLOAD]", payload)
+    logger.debug("Google export payload: %s", payload)
 
     resp = requests.post(
         GOOGLE_CALENDAR_EVENT_INSERT_URL,
@@ -337,8 +340,8 @@ def export_event_to_google(
         timeout=20,
     )
 
-    print("[GOOGLE EXPORT STATUS]", resp.status_code)
-    print("[GOOGLE EXPORT RESPONSE BODY]", resp.text)
+    logger.debug("Google export status: %s", resp.status_code)
+    logger.debug("Google export response: %s", resp.text)
 
     if not resp.ok:
         raise HTTPException(status_code=400, detail=f"Google Calendar export failed: {resp.text}")

@@ -2,6 +2,7 @@ import os
 import smtplib
 import ssl
 import time
+import logging
 from email.message import EmailMessage
 from datetime import datetime, timedelta, timezone
 
@@ -11,6 +12,8 @@ from app.db.session import SessionLocal
 from app.models.event import Event
 from app.models.user import User
 from app.models.reminder_log import ReminderLog
+
+logger = logging.getLogger(__name__)
 
 REMINDER_POLL_SECONDS = 10
 
@@ -123,7 +126,7 @@ def process_reminders_once():
 
     try:
         if not smtp_is_configured():
-            print("[REMINDER] SMTP not configured; skipping cycle")
+            logger.warning("SMTP not configured; skipping reminder cycle")
             return
 
         events = fetch_candidate_events(db, now_utc)
@@ -141,43 +144,50 @@ def process_reminders_once():
 
             user = db.query(User).filter(User.id == event.user_id).first()
             if not user or not user.email:
-                print(f"[REMINDER ERROR] event_id={event.id} reason=user_missing")
-                continue
-
-            if reminder_already_logged(db, event.id, user.email):
-                print(
-                    f"[REMINDER SKIP] event_id={event.id} "
-                    f"title={event.title} reason=already_logged"
+                logger.error(
+                    "Reminder skipped: user missing for event_id=%s", event.id
                 )
                 continue
 
-            print(
-                f"[REMINDER MATCH] event_id={event.id} "
-                f"title={event.title} "
-                f"reminder_time={reminder_time_utc.isoformat()} "
-                f"start_time={start_utc.isoformat()} "
-                f"user_email={user.email}"
+            if reminder_already_logged(db, event.id, user.email):
+                logger.debug(
+                    "Reminder already sent: event_id=%s title=%s",
+                    event.id, event.title,
+                )
+                continue
+
+            logger.info(
+                "Reminder matched: event_id=%s title=%s reminder_time=%s "
+                "start_time=%s user_email=%s",
+                event.id,
+                event.title,
+                reminder_time_utc.isoformat(),
+                start_utc.isoformat(),
+                user.email,
             )
 
             try:
                 send_email_reminder(user.email, event)
                 log_reminder_sent(db, event.id, user.email)
-                print(
-                    f"[REMINDER SENT] to={user.email} "
-                    f"event_id={event.id} title={event.title}"
+                logger.info(
+                    "Reminder sent: to=%s event_id=%s title=%s",
+                    user.email, event.id, event.title,
                 )
             except Exception as e:
                 db.rollback()
-                print(f"[REMINDER EMAIL ERROR] event_id={event.id} error={e}")
+                logger.error(
+                    "Failed to send reminder email: event_id=%s error=%s",
+                    event.id, e,
+                )
 
     finally:
         db.close()
 
 def reminder_loop():
-    print("[REMINDER SYSTEM] startup")
+    logger.info("Reminder system starting up")
     while True:
         try:
             process_reminders_once()
         except Exception as e:
-            print(f"[REMINDER LOOP ERROR] {e}")
+            logger.error("Unhandled error in reminder loop: %s", e)
         time.sleep(REMINDER_POLL_SECONDS)

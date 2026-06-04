@@ -1,0 +1,84 @@
+@startuml Deployment_Diagram
+title Zemen — UML Deployment Diagram
+
+skinparam node {
+  BackgroundColor White
+  BorderColor #333333
+  FontName Arial
+}
+skinparam component {
+  BackgroundColor #EEF5FB
+  BorderColor #3498db
+  FontName Arial
+}
+skinparam database {
+  BackgroundColor #FDF5E6
+  BorderColor #E67E22
+  FontName Arial
+}
+skinparam cloud {
+  BackgroundColor #FDFEFE
+  BorderColor #7F8C8D
+  FontName Arial
+}
+skinparam ArrowColor #555555
+skinparam linetype ortho
+
+' ── Developer Machine ───────────────────────────────────────────────────────
+node "Developer Machine\n<<device>>" as DEV {
+  node "Docker Engine\n<<execution environment>>" as DOCKER {
+
+    node "frontend_container\n<<Docker container>>\nImage: node:20-alpine\nPort: 5173:5173" as FE_NODE {
+      component "React 18 + Vite\n<<web application>>" as REACT
+      component "Axios HTTP Client\n<<library>>" as AXIOS
+      component "JWT (localStorage)\n<<security token>>" as JWT
+    }
+
+    node "backend_container\n<<Docker container>>\nImage: python:3.11-slim\nPort: 8000:8000" as BE_NODE {
+      component "FastAPI Application\n<<web framework>>" as FASTAPI
+      component "Uvicorn ASGI Server\n<<web server>>" as UVICORN
+      component "SQLAlchemy ORM\n<<persistence>>" as ORM
+
+      component "SecurityService\n(JWT · bcrypt)\n<<service>>" as SEC
+      component "DateConversionService\n<<service>>" as DCS
+      component "IntervalService\n<<service>>" as IS
+      component "RankingService\n<<service>>" as RS
+      component "ReminderService\n(daemon thread)\n<<service>>" as REM
+    }
+
+    node "db_container\n<<Docker container>>\nImage: postgres:15\nPort: 5432:5432\nVolume: pgdata" as DB_NODE {
+      database "PostgreSQL 15\n<<database>>\nTables:\nusers\nevents\nevent_participants\nevent_snapshots\nholidays\nreminder_logs" as PG
+    }
+
+  }
+}
+
+' ── External Services ────────────────────────────────────────────────────────
+cloud "Google Identity Platform\naccounts.google.com\n<<external service>>" as GOOGLE
+cloud "SMTP Server\n(e.g. Gmail SMTP)\nsmtp.gmail.com:587\n<<external service>>" as SMTP
+node "User Browser\n<<device>>" as BROWSER {
+  component "Web Browser\n(Chrome / Firefox / Safari)\n<<client>>" as BROWSER_APP
+}
+
+' ── Connections ──────────────────────────────────────────────────────────────
+
+BROWSER_APP --> REACT       : HTTPS\nhttp://localhost:5173
+
+REACT --> AXIOS             : uses
+AXIOS --> FASTAPI           : REST/JSON\nHTTP CORS\nlocalhost:8000
+
+FASTAPI --> UVICORN         : ASGI
+FASTAPI --> SEC             : uses
+FASTAPI --> DCS             : uses
+FASTAPI --> IS              : uses
+FASTAPI --> RS              : uses
+FASTAPI --> ORM             : uses
+
+ORM --> PG                  : TCP\nport 5432\nSQLAlchemy
+
+REM --> PG                  : reads events\n(daemon poll 10s)
+REM --> SMTP                : smtplib TLS\nport 587
+
+FASTAPI --> GOOGLE          : OAuth2 redirect\ntoken exchange\nHTTPS
+
+@enduml

@@ -1,0 +1,68 @@
+@startuml Activity_DateConversion
+title Zemen — Activity Diagram: Ethiopian ↔ Gregorian Date Conversion
+
+skinparam activity {
+  BackgroundColor White
+  BorderColor #333333
+  ArrowColor #333333
+  FontName Arial
+}
+skinparam ActivityDiamondBackgroundColor #EEF5FB
+skinparam ActivityDiamondBorderColor #3498db
+skinparam ActivityStartColor #2ECC71
+skinparam ActivityEndColor #E74C3C
+
+|Client|
+start
+:Provide date input\n(year, month, day)\nand direction (g2e or e2g);
+
+|API Router /convert|
+:Receive HTTP GET request;
+
+if (direction == "g2e"?) then (yes)
+  :Parse Gregorian year, month, day\nas Python date object;
+
+  if (month < 1 or month > 12\nor day < 1 or day > 31?) then (invalid)
+    :Return HTTP 422\nUnprocessable Entity;
+    stop
+  else (valid)
+    |DateConversionService|
+    :Call EthiopianDateConverter\n.to_ethiopian(year, month, day);
+    :Unpack result tuple (y, m, d);
+    :Look up month name\nfrom ETH_MONTHS dict;
+    :Return {year, month, day, month_name};
+  endif
+
+else (no — direction == "e2g")
+  :Parse Ethiopian year, month, day\nas integers;
+
+  if (month < 1 or month > 13\nor day < 1 or day > 30?) then (invalid)
+    :Return HTTP 422\nUnprocessable Entity;
+    stop
+  else (valid)
+    |DateConversionService|
+    :Call EthiopianDateConverter\n.to_gregorian(year, month, day);
+
+    if (month == 13 (Pagume)?) then (yes)
+      :Check if Ethiopian year is leap year\n(year mod 4 == 3);
+      if (leap year?) then (yes)
+        :Pagume has 6 days\n(max valid day = 6);
+      else (no)
+        :Pagume has 5 days\n(max valid day = 5);
+      endif
+    endif
+
+    :Unpack result tuple (y, m, d);
+    :Return {year, month, day};
+  endif
+endif
+
+|API Router /convert|
+:Serialize result to JSON;
+:Return HTTP 200 with result;
+
+|Client|
+:Display converted date\nin user's preferred calendar;
+stop
+
+@enduml

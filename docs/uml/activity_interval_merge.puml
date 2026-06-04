@@ -1,0 +1,87 @@
+@startuml Activity_IntervalMerge
+title Zemen — Activity Diagram: Interval Merge & Free-Gap Finding
+
+skinparam activity {
+  BackgroundColor White
+  BorderColor #333333
+  ArrowColor #333333
+  FontName Arial
+}
+skinparam ActivityDiamondBackgroundColor #EEF5FB
+skinparam ActivityDiamondBorderColor #3498db
+skinparam ActivityStartColor #2ECC71
+skinparam ActivityEndColor #E74C3C
+
+start
+
+:Input: list of (start, end) busy intervals\nfrom all participants;
+
+' ── STEP 1: normalize ──────────────────────────────────────────────────────
+:normalize(intervals)\n• Remove pairs where start >= end\n• Remove pairs containing None\n• Sort by start ascending;
+
+if (normalized list is empty?) then (yes)
+  :whole window is free\nreturn [(window_start, window_end)];
+  stop
+else (no)
+endif
+
+' ── STEP 2: merge overlapping ──────────────────────────────────────────────
+:Initialize merged = []\ncurrent = first interval;
+
+repeat
+  :Take next interval N;
+  if (N.start <= current.end\n(overlapping or touching)?) then (yes)
+    :Extend current.end =\nmax(current.end, N.end);
+  else (no — gap between them)
+    :Append current to merged;
+    :current = N;
+  endif
+repeat while (more intervals?)
+
+:Append final current to merged;
+:Result: merged busy intervals\n(minimal non-overlapping set);
+
+' ── STEP 3: find gaps ──────────────────────────────────────────────────────
+:find_gaps(window_start, window_end, merged_busy);
+
+:cursor = window_start;
+:gaps = [];
+
+repeat
+  :Take next busy interval B;
+  if (B.start > cursor?) then (yes — there is a free gap)
+    :gaps.append((cursor, B.start));
+  else (no)
+  endif
+  :cursor = max(cursor, B.end);
+repeat while (more busy intervals?)
+
+if (cursor < window_end?) then (yes)
+  :gaps.append((cursor, window_end));
+else (no)
+endif
+
+:Result: list of free (gap_start, gap_end) pairs;
+
+' ── STEP 4: choose candidate slots ────────────────────────────────────────
+:choose_slots(gaps, duration_minutes, limit);
+
+:slots = [];
+
+repeat
+  :Take next gap G;
+  :cursor = G.start;
+  repeat
+    :slot_end = cursor + duration_minutes;
+    if (slot_end <= G.end?) then (fits in gap)
+      :slots.append((cursor, slot_end));
+      :cursor += duration_minutes (advance by full slot duration);
+    else (no — too small)
+    endif
+  repeat while (slot_end <= G.end AND len(slots) < limit?)
+repeat while (more gaps AND len(slots) < limit?)
+
+:Return candidate slot list\n(capped at limit);
+stop
+
+@enduml

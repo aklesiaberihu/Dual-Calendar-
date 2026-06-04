@@ -175,6 +175,8 @@ def list_events(
     start_from: str | None = Query(None, description="ISO datetime lower bound"),
     start_to: str | None = Query(None, description="ISO datetime upper bound"),
     ownership: str = Query("all", description="all | owned | shared"),
+    limit: int = Query(100, ge=1, le=500, description="NFR-P1: max results per page (1–500)"),
+    offset: int = Query(0, ge=0, description="NFR-P1: number of results to skip for pagination"),
     db: Session = Depends(get_db),
     email: str = Depends(get_current_user_email),
 ):
@@ -213,7 +215,12 @@ def list_events(
     if start_to:
         query = query.filter(Event.start_time_utc <= start_to)
 
-    events = query.order_by(Event.start_time_utc.asc()).all()
+    events = (
+        query.order_by(Event.start_time_utc.asc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
     return [serialize_event(event) for event in events]
 
 @router.get("/{event_id}")

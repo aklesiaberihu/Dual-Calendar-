@@ -1,0 +1,56 @@
+@startuml Zemen_EventLifecycle
+!define TITLE Event Lifecycle State Machine
+title TITLE
+skin rose
+
+[*] --> Created : user creates event
+
+Created --> Active : start_time_utc <= now\n(event begins)
+
+Active --> Completed : end_time_utc <= now\n(event ends)
+
+Created --> Cancelled : user deletes\nwhile not started
+
+Active --> Cancelled : user deletes\nduring event
+
+Completed --> Archived : manual archive\nor auto after 90 days
+
+Cancelled --> [*] : no further action
+
+Completed --> [*] : no further action
+
+Archived --> [*] : no further action
+
+note right of Created
+  Event persisted in DB
+  Participants can be added
+  Version = 1
+  Reminders scheduled
+end note
+
+note right of Active
+  start_time_utc <= now
+  Event is ongoing
+  Participants notified via reminder
+  Version increments if edited
+end note
+
+note right of Completed
+  end_time_utc has passed
+  Snapshot retained for audit
+  Participants see as past
+end note
+
+note right of Cancelled
+  Deleted from active view
+  Snapshots retained for audit
+  Participants notified
+end note
+
+note right of Archived
+  Moved to history
+  Not shown in default calendar view
+  Data preserved long-term
+end note
+
+@enduml

@@ -1,5 +1,6 @@
 import asyncio
 import os
+import logging
 import smtplib
 from email.message import EmailMessage
 from datetime import datetime, timedelta
@@ -10,6 +11,8 @@ from app.db.session import SessionLocal
 from app.models.event import Event
 from app.models.user import User
 from app.models.reminder_log import ReminderLog
+
+logger = logging.getLogger(__name__)
 
 SMTP_HOST = os.getenv("SMTP_HOST", "")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
@@ -53,16 +56,13 @@ def process_due_reminders_once():
     db: Session = SessionLocal()
     try:
         now = datetime.utcnow()
-        print(f"[REMINDER CHECK] now_utc={now.isoformat()}", flush=True)
+        logger.debug("Reminder check now_utc=%s", now.isoformat())
 
         events = db.query(Event).order_by(Event.start_time_utc.asc()).all()
 
         for event in events:
             if event.reminder_minutes is None:
-                print(
-                    f"[REMINDER SKIP] event_id={event.id} title={event.title} reason=no_reminder_minutes",
-                    flush=True,
-                )
+                logger.debug("Reminder skipped: event_id=%s title=%s reason=no_reminder_minutes", event.id, event.title)
                 continue
 
             existing = (
@@ -71,48 +71,29 @@ def process_due_reminders_once():
                 .first()
             )
             if existing:
-                print(
-                    f"[REMINDER SKIP] event_id={event.id} title={event.title} reason=already_logged sent_at={existing.sent_at}",
-                    flush=True,
-                )
+                logger.debug("Reminder skipped: event_id=%s title=%s reason=already_logged sent_at=%s", event.id, event.title, existing.sent_at)
                 continue
 
             reminder_time = event.start_time_utc - timedelta(minutes=event.reminder_minutes)
 
-            print(
-                f"[REMINDER EVENT] event_id={event.id} title={event.title} "
-                f"start_utc={event.start_time_utc.isoformat()} "
-                f"reminder_minutes={event.reminder_minutes} "
-                f"reminder_time_utc={reminder_time.isoformat()}",
-                flush=True,
-            )
+            logger.debug("Reminder event: event_id=%s title=%s start_utc=%s reminder_minutes=%s reminder_time_utc=%s",
+                        event.id, event.title, event.start_time_utc.isoformat(), event.reminder_minutes, reminder_time.isoformat())
 
             if reminder_time <= now < event.start_time_utc:
                 user = db.query(User).filter(User.id == event.user_id).first()
                 if not user:
-                    print(
-                        f"[REMINDER SKIP] event_id={event.id} title={event.title} reason=user_not_found",
-                        flush=True,
-                    )
+                    logger.error("Reminder skipped: event_id=%s title=%s reason=user_not_found", event.id, event.title)
                     continue
 
-                print(
-                    f"[REMINDER MATCH] event_id={event.id} title={event.title} "
-                    f"reminder_time={reminder_time.isoformat()} "
-                    f"start_time={event.start_time_utc.isoformat()} "
-                    f"user_email={user.email}",
-                    flush=True,
-                )
+                logger.info("Reminder matched: event_id=%s title=%s reminder_time=%s start_time=%s user_email=%s",
+                           event.id, event.title, reminder_time.isoformat(), event.start_time_utc.isoformat(), user.email)
 
                 subject = build_email_subject(event)
                 body = build_email_body(event, user)
 
                 send_email_reminder(user.email, subject, body)
 
-                print(
-                    f"[REMINDER SENT] to={user.email} event_id={event.id} title={event.title}",
-                    flush=True,
-                )
+                logger.info("Reminder sent: to=%s event_id=%s title=%s", user.email, event.id, event.title)
 
                 log = ReminderLog(
                     event_id=event.id,
@@ -123,7 +104,7 @@ def process_due_reminders_once():
 
     except Exception as e:
         db.rollback()
-        print(f"[REMINDER EMAIL ERROR] {e}", flush=True)
+        logger.error("Reminder email error: %s", e)
     finally:
         db.close()
 

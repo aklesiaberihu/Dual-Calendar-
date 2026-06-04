@@ -31,7 +31,7 @@ Built by Aklesia Berihu Mekonnen and Meron Zemichael Kahsay — 4th Year Data An
 | Auth | JWT + Google OAuth 2.0 |
 | Email | SMTP (smtplib + TLS) |
 | Deployment | Docker Compose |
-| Testing | Pytest (116 tests) + Postman (93 tests) |
+| Testing | Pytest (139 tests) + Postman (117 assertions) |
 
 ---
 
@@ -77,7 +77,7 @@ cd backend
 python3.12 -m pytest tests/ -v
 ```
 
-116 tests across 10 test files covering: authentication, date conversion edge cases, interval merging, ranking, scheduling pipeline, diff, reminders, and security.
+139 tests across 12 test files covering: authentication, date conversion edge cases, interval merging, ranking, scheduling pipeline, diff, reminders, security, input validation, and UTC storage.
 
 ---
 
@@ -113,4 +113,4 @@ Interactive API docs available at **http://localhost:8000/docs** when the backen
 
 ## Postman Collection
 
-Import `postman_collection.json` into Postman to run the full 93-test integration suite. Set `base_url` to `http://localhost:8000` and run the collection top-to-bottom.
+Import `postman_collection.json` into Postman to run the full 117-assertion integration suite covering NFR-P1 (performance), NFR-S1 (role enforcement), and API endpoint validation. Set `base_url` to `http://localhost:8000` and run the collection top-to-bottom.
