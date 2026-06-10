@@ -45,14 +45,12 @@ def test_rank_slots_ideal():
         busy_by_user={},
         required_users=set(),
         optional_users=set(),
-        window_start=dt(9),
-        prefer_earlier=False,
         work_start_hour=9,
         work_end_hour=17,
     )
     assert len(result) == 1
     assert result[0]["score"] == 0
-    assert result[0]["reasons"] == ["ideal slot (no penalties)"]
+    assert result[0]["reasons"] == ["Everyone free, within work hours"]
 
 def test_rank_slots_required_user_busy_excluded():
     slots = [(dt(10), dt(11))]
@@ -62,8 +60,6 @@ def test_rank_slots_required_user_busy_excluded():
         busy_by_user=busy_by_user,
         required_users={1},
         optional_users=set(),
-        window_start=dt(9),
-        prefer_earlier=False,
         work_start_hour=9,
         work_end_hour=17,
     )
@@ -77,8 +73,6 @@ def test_rank_slots_optional_user_busy_penalised():
         busy_by_user=busy_by_user,
         required_users=set(),
         optional_users={2},
-        window_start=dt(9),
-        prefer_earlier=False,
         work_start_hour=9,
         work_end_hour=17,
     )
@@ -91,12 +85,10 @@ def test_rank_slots_outside_work_hours_penalised():
         busy_by_user={},
         required_users=set(),
         optional_users=set(),
-        window_start=dt(9),
-        prefer_earlier=False,
         work_start_hour=9,
         work_end_hour=17,
     )
-    assert result[0]["score"] == 30
+    assert result[0]["score"] == 50
 
 def test_rank_slots_sorted_by_score():
     slots = [(dt(20), dt(21)), (dt(10), dt(11))]
@@ -105,23 +97,59 @@ def test_rank_slots_sorted_by_score():
         busy_by_user={},
         required_users=set(),
         optional_users=set(),
-        window_start=dt(9),
-        prefer_earlier=False,
         work_start_hour=9,
         work_end_hour=17,
     )
     assert result[0]["score"] <= result[1]["score"]
 
-def test_rank_slots_prefer_earlier_penalises_later():
+def test_rank_slots_in_work_hours_is_ideal():
     slots = [(dt(9), dt(10)), (dt(15), dt(16))]
     result = rank_slots(
         slots=slots,
         busy_by_user={},
         required_users=set(),
         optional_users=set(),
-        window_start=dt(9),
-        prefer_earlier=True,
         work_start_hour=9,
         work_end_hour=17,
     )
-    assert result[0]["start"] == dt(9).isoformat()
+    assert result[0]["score"] == 0
+    assert result[0]["start"] == dt(9)
+
+def test_rank_slots_rating_ideal():
+    slots = [(dt(10), dt(11))]
+    result = rank_slots(
+        slots=slots,
+        busy_by_user={},
+        required_users=set(),
+        optional_users=set(),
+        work_start_hour=9,
+        work_end_hour=17,
+    )
+    assert result[0]["rating"] == "⭐⭐⭐⭐⭐ IDEAL"
+
+def test_rank_slots_rating_poor():
+    slots = [(dt(20), dt(21))]
+    busy_by_user = {2: [(dt(20), dt(21))], 3: [(dt(20), dt(21))], 4: [(dt(20), dt(21))]}
+    result = rank_slots(
+        slots=slots,
+        busy_by_user=busy_by_user,
+        required_users=set(),
+        optional_users={2, 3, 4},
+        work_start_hour=9,
+        work_end_hour=17,
+    )
+    assert result[0]["score"] == 350
+    assert result[0]["rating"] == "⭐⭐ FAIR"
+
+def test_rank_slots_all_required_any_busy_excluded():
+    slots = [(dt(10), dt(11))]
+    busy_by_user = {1: [(dt(10), dt(11))], 2: []}
+    result = rank_slots(
+        slots=slots,
+        busy_by_user=busy_by_user,
+        required_users={1, 2},
+        optional_users=set(),
+        work_start_hour=9,
+        work_end_hour=17,
+    )
+    assert result == []

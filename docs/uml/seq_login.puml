@@ -8,7 +8,7 @@ skinparam FontName Arial
 
 actor       "User"          as U
 participant "React Frontend" as FE
-participant "FastAPI /auth"  as AUTH
+participant "FastAPI Backend\n(/auth · /profile)" as AUTH
 participant "SecurityService" as SEC
 database    "PostgreSQL"    as DB
 
@@ -20,7 +20,7 @@ AUTH -> SEC : hash_password(password)
 SEC --> AUTH : hashed_password
 AUTH -> DB : INSERT INTO users\n(email, full_name, hashed_password, ...)
 DB --> AUTH : User row
-AUTH --> FE : 201 {id, email}
+AUTH --> FE : 200 {id, email}
 FE --> U : "Account created — please sign in"
 
 == Login ==
@@ -47,7 +47,7 @@ end
 
 U -> FE : Navigate to protected page
 FE -> AUTH : GET /profile\nAuthorization: Bearer <token>
-AUTH -> SEC : get_current_user_email(token)
+AUTH -> SEC : get_current_user_email(\nauthorization="Bearer <token>")
 alt Token valid
   SEC --> AUTH : email (subject claim)
   AUTH -> DB : SELECT * FROM users WHERE email=...

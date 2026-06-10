@@ -13,6 +13,7 @@ export function setToken(token) {
   if (!token) return;
   localStorage.setItem("access_token", token);
   localStorage.setItem("token", token);
+  localStorage.setItem("jwt", token);
 }
 
 export function clearToken() {
@@ -238,6 +239,32 @@ export async function getEventDiff(eventId, fromVersion, toVersion) {
 export async function rankEventSlots(eventId, params) {
   const q = new URLSearchParams(params).toString();
   const r = await fetch(`${API_URL}/events/${eventId}/rank?${q}`, {
+    headers: authHeaders(),
+  });
+  if (!r.ok) await parseError(r);
+  return r.json();
+}
+
+export async function rankSlotsByParticipants(params) {
+  const q = new URLSearchParams(params).toString();
+  const r = await fetch(`${API_URL}/schedule/rank?${q}`, {
+    headers: authHeaders(),
+  });
+  if (!r.ok) await parseError(r);
+  return r.json();
+}
+
+export async function getEventSeries(eventId) {
+  const r = await fetch(`${API_URL}/events/${eventId}/series`, {
+    headers: authHeaders(),
+  });
+  if (!r.ok) await parseError(r);
+  return r.json();
+}
+
+export async function deleteEventSeries(eventId, scope = "all") {
+  const r = await fetch(`${API_URL}/events/${eventId}/series?scope=${scope}`, {
+    method: "DELETE",
     headers: authHeaders(),
   });
   if (!r.ok) await parseError(r);

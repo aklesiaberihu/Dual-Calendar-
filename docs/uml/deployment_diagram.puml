@@ -28,7 +28,7 @@ skinparam linetype ortho
 node "Developer Machine\n<<device>>" as DEV {
   node "Docker Engine\n<<execution environment>>" as DOCKER {
 
-    node "frontend_container\n<<Docker container>>\nImage: node:20-alpine\nPort: 5173:5173" as FE_NODE {
+    node "frontend_container\n<<Docker container>>\nImage: node:20-slim\nPort: 5173:5173" as FE_NODE {
       component "React 18 + Vite\n<<web application>>" as REACT
       component "Axios HTTP Client\n<<library>>" as AXIOS
       component "JWT (localStorage)\n<<security token>>" as JWT
@@ -43,11 +43,13 @@ node "Developer Machine\n<<device>>" as DEV {
       component "DateConversionService\n<<service>>" as DCS
       component "IntervalService\n<<service>>" as IS
       component "RankingService\n<<service>>" as RS
+      component "RecurrenceService\n(expand + conflict-check)\n<<service>>" as RECUR
+      component "DiffService\n(field-level version audit)\n<<service>>" as DIFF
       component "ReminderService\n(daemon thread)\n<<service>>" as REM
     }
 
-    node "db_container\n<<Docker container>>\nImage: postgres:15\nPort: 5432:5432\nVolume: pgdata" as DB_NODE {
-      database "PostgreSQL 15\n<<database>>\nTables:\nusers\nevents\nevent_participants\nevent_snapshots\nholidays\nreminder_logs" as PG
+    node "db_container\n<<Docker container>>\nImage: postgres:16\nPort: 5432:5432\nVolume: pgdata" as DB_NODE {
+      database "PostgreSQL 16\n<<database>>\nTables:\nusers\nevents\nevent_participants\nevent_snapshots\nholidays\nreminder_logs" as PG
     }
 
   }
@@ -72,6 +74,8 @@ FASTAPI --> SEC             : uses
 FASTAPI --> DCS             : uses
 FASTAPI --> IS              : uses
 FASTAPI --> RS              : uses
+FASTAPI --> RECUR           : uses
+FASTAPI --> DIFF            : uses
 FASTAPI --> ORM             : uses
 
 ORM --> PG                  : TCP\nport 5432\nSQLAlchemy

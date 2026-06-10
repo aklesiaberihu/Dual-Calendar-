@@ -134,7 +134,7 @@ export default function Convert() {
       </div>
 
       <div className="sectionCard sectionCardPad">
-        
+
         <div style={{ display:"flex", gap:8, marginBottom:24 }}>
           {[
             { key:"g2e", label:"Gregorian to Ethiopian", sub:"Convert from Gregorian" },

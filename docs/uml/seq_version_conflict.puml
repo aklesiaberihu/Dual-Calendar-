@@ -64,6 +64,8 @@ FEA -> EV : PUT /events/42?force=true\n{version: 3, description: "Monthly review
 note right : force=True bypasses\nversion check
 EV -> DB : UPDATE events SET\ndescription="Monthly review", version=5
 DB --> EV : OK
+EV -> DB : INSERT INTO event_snapshots\n(event_id=42, version=5, ...)
+DB --> EV : Snapshot saved
 EV --> FEA : 200 {version=5, ...}
 FEA --> UA : Saved with override
 

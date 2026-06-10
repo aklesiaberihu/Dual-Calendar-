@@ -1,29 +1,30 @@
 @startuml Zemen_UseCases
-!define SYSTEMID Zemen Dual Calendar System
-skin rose
+title Zemen - Use Case Diagram
 
 actor "User" as User
-actor "Reminder\nService" as ReminderSvc
-actor "Google OAuth\nProvider" as GoogleOAuth
+actor "Reminder Service" as ReminderSvc
+actor "Google OAuth" as GoogleOAuth
 
-rectangle SYSTEMID {
+rectangle "Zemen Dual Calendar System" {
   usecase "Register / Sign Up" as UC_Register
   usecase "Login" as UC_Login
   usecase "Login via Google" as UC_GoogleLogin
-  usecase "View Calendar\n(Gregorian)" as UC_ViewGregorian
-  usecase "View Calendar\n(Ethiopian)" as UC_ViewEthiopian
-  usecase "Switch Calendar\nPreference" as UC_SwitchCal
+  usecase "View Calendar (Gregorian)" as UC_ViewGregorian
+  usecase "View Calendar (Ethiopian)" as UC_ViewEthiopian
+  usecase "Switch Calendar Preference" as UC_SwitchCal
   usecase "Create Event" as UC_CreateEvent
+  usecase "Create Recurring Event" as UC_CreateRecurring
+  usecase "Manage Event Series\n(view / delete all)" as UC_ManageSeries
   usecase "Edit Event" as UC_EditEvent
   usecase "Delete Event" as UC_DeleteEvent
-  usecase "View Event\nDetails" as UC_ViewEvent
-  usecase "Share Event\nwith Others" as UC_ShareEvent
-  usecase "View Shared\nEvents" as UC_ViewShared
-  usecase "Convert Date\n(Gregorian ↔ Ethiopian)" as UC_ConvertDate
-  usecase "Suggest Meeting\nSlots" as UC_SuggestSlots
-  usecase "Rank Meeting\nSlots by\nConstraints" as UC_RankSlots
-  usecase "Set Event\nReminder" as UC_SetReminder
-  usecase "Manage User\nProfile" as UC_ManageProfile
+  usecase "View Event Details" as UC_ViewEvent
+  usecase "Share Event with Others" as UC_ShareEvent
+  usecase "View Shared Events" as UC_ViewShared
+  usecase "Convert Date (G ↔ E)" as UC_ConvertDate
+  usecase "Suggest Meeting Slots" as UC_SuggestSlots
+  usecase "Rank Meeting Slots" as UC_RankSlots
+  usecase "Set Event Reminder" as UC_SetReminder
+  usecase "Manage User Profile" as UC_ManageProfile
   usecase "View Holidays" as UC_ViewHolidays
 }
 
@@ -33,6 +34,8 @@ User --> UC_ViewGregorian
 User --> UC_ViewEthiopian
 User --> UC_SwitchCal
 User --> UC_CreateEvent
+User --> UC_CreateRecurring
+User --> UC_ManageSeries
 User --> UC_EditEvent
 User --> UC_DeleteEvent
 User --> UC_ViewEvent
@@ -46,13 +49,11 @@ User --> UC_ManageProfile
 User --> UC_ViewHolidays
 
 GoogleOAuth --> UC_GoogleLogin
-UC_GoogleLogin --> UC_Login : <<include>>
-UC_Login --> UC_Register : actor can also register
-UC_CreateEvent --> UC_SetReminder : <<include>>
-UC_SuggestSlots --> UC_ConvertDate : <<include>>
-UC_RankSlots --> UC_SuggestSlots : <<extend>>
-UC_ViewEvent --> UC_ConvertDate : <<include>>
-UC_ShareEvent --> UC_EditEvent : requires edit rights
-ReminderSvc --> UC_SetReminder : sends reminders
+UC_GoogleLogin ..> UC_Login : includes
+UC_CreateRecurring ..> UC_CreateEvent : extends
+UC_CreateEvent ..> UC_SetReminder : includes
+UC_RankSlots ..> UC_SuggestSlots : extends
+UC_ShareEvent --> UC_EditEvent
+ReminderSvc --> UC_SetReminder
 
 @enduml

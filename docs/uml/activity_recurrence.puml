@@ -1,0 +1,141 @@
+@startuml Activity_RecurrenceEngine
+title Zemen — Activity Diagram: Recurrence Engine (expand_occurrences)
+
+skinparam activity {
+  BackgroundColor White
+  BorderColor #333333
+  ArrowColor #333333
+  FontName Arial
+}
+skinparam ActivityDiamondBackgroundColor #EEF5FB
+skinparam ActivityDiamondBorderColor #3498db
+skinparam ActivityStartColor #2ECC71
+skinparam ActivityEndColor #E74C3C
+
+start
+
+note right
+  Frontend preset → payload mapping (EventForm.jsx / getRecurrencePayload):
+    "never"         → skip recurrence entirely (recurrence_rule="none")
+    "every_day"     → frequency="daily",   interval=1
+    "every_week"    → frequency="weekly",  interval=1
+    "every_2_weeks" → frequency="weekly",  interval=2
+    "every_month"   → frequency="monthly", interval=1
+    "every_year"    → frequency="monthly", interval=12  (no "yearly" rule in backend)
+    "custom"        → frequency=user-selected (daily|weekly|monthly), interval=wheel-value
+  end_repeat "never"   → end_type="count",  end_count=365  (backend cap: 1-365)
+  end_repeat "on_date" → end_type="until",  end_until=InlineCalendar date
+  byday sent only when frequency="weekly" and day checkboxes non-empty
+end note
+
+:Input:\n• frequency: "daily" | "weekly" | "monthly"\n• interval: int (≥ 1)\n• byday: list of "MON".."SUN" (weekly only)\n• end_type: "count" | "until"\n• end_count: int (used when end_type == "count")\n• end_until: date (used when end_type == "until")\n• base_start: naive local datetime\n• duration: timedelta | None;
+
+:interval = max(1, interval)\nresults = [];
+
+if (frequency == "daily"?) then (yes)
+
+  :current = base_start;
+
+  repeat
+    if (end_type == "until"\nAND current.date() > end_until?) then (yes)
+      break
+    else (no)
+    endif
+
+    :append (current, current + duration)\n(end = None when duration is None);
+
+    if (end_type == "count"\nAND len(results) >= end_count?) then (yes)
+      break
+    else (no)
+      :current += timedelta(days=interval);
+    endif
+  repeat while (len(results) < MAX_OCCURRENCES?)
+
+elseif (frequency == "weekly"?) then (yes)
+
+  if (byday is empty?) then (yes)
+    :byday = [weekday of base_start]\n(default to base day);
+  else (no)
+  endif
+
+  :sorted_wds = sorted weekday indices\ntime_offset = base_start time-of-day\nweek_start = Monday midnight of\nbase_start's week;
+
+  repeat
+    :For each weekday wd in sorted_wds:;
+
+    :candidate = week_start\n+ timedelta(days=wd)\n+ time_offset;
+
+    if (candidate < base_start?) then (yes — skip partial first week)
+      :continue to next wd;
+    else (no)
+    endif
+
+    if (end_type == "until"\nAND candidate.date() > end_until?) then (yes)
+      note right: Sorted days — remaining\nalso beyond end_until
+      break
+    else (no)
+    endif
+
+    :append (candidate, candidate + duration);
+
+    if (end_type == "count"\nAND len(results) >= end_count?) then (yes)
+      break
+    else (no)
+    endif
+
+    if (more weekdays in this week?) then (yes)
+      :next wd;
+    else (no — advance to next week)
+      :week_start += timedelta(weeks=interval);
+    endif
+
+  repeat while (len(results) < MAX_OCCURRENCES?)
+
+elseif (frequency == "monthly"?) then (yes)
+
+  :target_day = base_start.day\ncur_year = base_start.year\ncur_month = base_start.month;
+
+  repeat
+    :last_day = last day of cur_year/cur_month\n(using calendar.monthrange)\nactual_day = min(target_day, last_day);
+    note right: Clamps Jan 31 → Feb 28\n(month-end safety)
+
+    :candidate = base_start.replace(\nyear=cur_year, month=cur_month,\nday=actual_day);
+
+    if (end_type == "until"\nAND candidate.date() > end_until?) then (yes)
+      break
+    else (no)
+    endif
+
+    :append (candidate, candidate + duration);
+
+    if (end_type == "count"\nAND len(results) >= end_count?) then (yes)
+      break
+    else (no)
+      :m = cur_month - 1 + interval\ncur_year += m // 12\ncur_month = m % 12 + 1;
+      note right: Correct month-rollover\nusing integer arithmetic
+    endif
+
+  repeat while (len(results) < MAX_OCCURRENCES?)
+
+endif
+
+:Return results\n(list of (start_local, end_local) tuples)\nCaller converts to UTC via local_to_utc();
+
+note right: expand_occurrences returns the\nlist (possibly empty); it never raises HTTP exceptions.
+
+if (results is empty?) then (yes)
+  :Router raises HTTP 400\n"Recurrence rule produced\nno occurrences";
+  stop
+else (no)
+endif
+
+:detect_series_conflicts(utc_occurrences, db, user_id)\nChecks each UTC occurrence against\nexisting events BEFORE any INSERT\n→ returns list of {occurrence_start, conflicting};
+note right: Pre-insert check means\nno exclusion list needed;\nno rollback risk on conflict
+
+:INSERT all occurrences as Event rows\nsharing recurrence_group_id (UUID)\nand recurrence_rule / interval / byday;
+
+:Return serialize_event(first_event)\n+ recurrence_created: int\n+ recurrence_conflicts: list;
+
+stop
+
+@enduml

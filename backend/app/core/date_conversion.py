@@ -17,22 +17,38 @@ ETH_MONTHS = {
     13: "Pagume",
 }
 
+def _gregorian_to_eth_jdn(year: int, month: int, day: int):
+    # Pure-Python JDN fallback — used only when the library raises ValueError
+    # (which only happens when the result is Pagume / Ethiopian month 13,
+    # because the library internally tries to construct datetime.date(year, 13, day)
+    # and Python's stdlib rejects month > 12).
+    a = (14 - month) // 12
+    y = year + 4800 - a
+    m = month + 12 * a - 3
+    jdn = day + (153 * m + 2) // 5 + 365 * y + y // 4 - y // 100 + y // 400 - 32045
+    diff = jdn - 1724221
+    r = diff % 1461
+    n = r % 365 + 365 * (r // 1460)
+    eth_year  = 4 * (diff // 1461) + r // 365 - r // 1460 + 1
+    eth_month = n // 30 + 1
+    eth_day   = n % 30 + 1
+    return eth_year, eth_month, eth_day
+
 def gregorian_to_ethiopian(g_date: date) -> dict:
-    out = EthiopianDateConverter.to_ethiopian(g_date.year, g_date.month, g_date.day)
-
-    if isinstance(out, tuple):
-        y, m, d = out
-    else:
-        y, m, d = out.year, out.month, out.day
-
+    try:
+        out = EthiopianDateConverter.to_ethiopian(g_date.year, g_date.month, g_date.day)
+        if isinstance(out, tuple):
+            y, m, d = out
+        else:
+            y, m, d = out.year, out.month, out.day
+    except ValueError:
+        y, m, d = _gregorian_to_eth_jdn(g_date.year, g_date.month, g_date.day)
     return {"year": y, "month": m, "day": d, "month_name": ETH_MONTHS.get(m)}
 
 def ethiopian_to_gregorian(year: int, month: int, day: int) -> dict:
     out = EthiopianDateConverter.to_gregorian(year, month, day)
-
     if isinstance(out, tuple):
         y, m, d = out
     else:
         y, m, d = out.year, out.month, out.day
-
     return {"year": y, "month": m, "day": d}

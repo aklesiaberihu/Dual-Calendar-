@@ -21,38 +21,25 @@ start
 
 if (direction == "g2e"?) then (yes)
   :Parse Gregorian year, month, day\nas Python date object;
+  note right: Invalid values raise ValueError\nfrom Python's date() constructor\n(implicit validation — no explicit check)
 
-  if (month < 1 or month > 12\nor day < 1 or day > 31?) then (invalid)
-    :Return HTTP 422\nUnprocessable Entity;
-    stop
-  else (valid)
-    |DateConversionService|
-    :Call EthiopianDateConverter\n.to_ethiopian(year, month, day);
-    :Unpack result tuple (y, m, d);
-    :Look up month name\nfrom ETH_MONTHS dict;
-    :Return {year, month, day, month_name};
-  endif
+  |DateConversionService|
+  :Call gregorian_to_ethiopian(g_date);
+  :Apply conversion algorithm\n(returns eth_year, eth_month, eth_day);
+  :Look up month name\nfrom ETH_MONTHS dict;
+  :Return {year, month, day, month_name};
 
 else (no — direction == "e2g")
   :Parse Ethiopian year, month, day\nas integers;
 
-  if (month < 1 or month > 13\nor day < 1 or day > 30?) then (invalid)
-    :Return HTTP 422\nUnprocessable Entity;
+  if (month < 1 or month > 13\nor day < 1 or day > 30\nor year <= 0?) then (invalid)
+    :Return HTTP 400\nBad Request;
+    note right: _validate_ethiopian_date()\nchecks month 1-13, day 1-30,\nyear > 0; raises HTTPException(400)
     stop
   else (valid)
     |DateConversionService|
-    :Call EthiopianDateConverter\n.to_gregorian(year, month, day);
-
-    if (month == 13 (Pagume)?) then (yes)
-      :Check if Ethiopian year is leap year\n(year mod 4 == 3);
-      if (leap year?) then (yes)
-        :Pagume has 6 days\n(max valid day = 6);
-      else (no)
-        :Pagume has 5 days\n(max valid day = 5);
-      endif
-    endif
-
-    :Unpack result tuple (y, m, d);
+    :Call ethiopian_to_gregorian(year, month, day);
+    :Apply conversion algorithm\n(returns Gregorian date object);
     :Return {year, month, day};
   endif
 endif

@@ -1615,17 +1615,65 @@ def ethiopian_to_gregorian(eth_year: int, eth_month: int, eth_day: int) -> date:
   - All 13 Ethiopian month names
   - Year-boundary dates
 
-#### UML Activity Diagram
+#### UML Activity Diagram: Date Conversion Flow
 
-**File:** `/docs/uml/activity_date_conversion.puml`
+```puml
+@startuml Activity_DateConversion
+title Zemen — Activity Diagram: Ethiopian ↔ Gregorian Date Conversion
 
-Shows the decision points and validation flow:
-1. **Start** → Input Gregorian date
-2. **Validate:** day in 1–31, month in 1–12
-3. **Convert:** Use library to transform
-4. **Validate output:** If Pagume 6, check leap year
-5. **Return** Ethiopian date or error
-6. Reverse flow for e2g
+start
+:Input Gregorian date\n(year, month, day);
+:Validate: day in 1–31, month in 1–12;
+if (valid?) then (no)
+  :Raise ValueError;
+  stop
+else (yes)
+endif
+:Call ethiopian_date.from_gregorian();
+:Receive (eth_year, eth_month, eth_day);
+if (eth_month == 13 AND eth_day == 6?) then (yes)
+  if (eth_year % 4 == 3?) then (no — not leap year)
+    :Raise ValueError\n"Pagume 6 invalid in non-leap year";
+    stop
+  else (yes — leap year)
+  endif
+endif
+:Return {year, month, day, month_name};
+stop
+
+---
+
+start
+:Input Ethiopian date\n(year, month, day);
+if (month < 1 OR month > 13?) then (yes)
+  :Raise ValueError;
+  stop
+else (no)
+endif
+if (month < 13?) then (yes — regular month)
+  if (day < 1 OR day > 30?) then (yes)
+    :Raise ValueError;
+    stop
+  else (no)
+  endif
+else (month == 13 — Pagume)
+  if (year % 4 == 3?) then (yes — leap year)
+    :max_day = 6;
+  else (no — non-leap)
+    :max_day = 5;
+  endif
+  if (day < 1 OR day > max_day?) then (yes)
+    :Raise ValueError;
+    stop
+  else (no)
+  endif
+endif
+:Call ethiopian_date.to_gregorian();
+:Return Gregorian date object;
+stop
+
+@enduml
+```
 
 ---
 
@@ -1689,15 +1737,85 @@ Find: All free intervals of sufficient length within the window
   - Non-overlapping intervals
   - Fragmented patterns
 
-#### UML Activity Diagram
+#### UML Activity Diagram: Interval Merge & Gap Finding
 
-**File:** `/docs/uml/activity_interval_merge.puml`
+```puml
+@startuml Activity_IntervalMerge
+title Zemen — Activity Diagram: Interval Merge & Free-Gap Finding
 
-Shows the four-stage flow:
-1. **Normalize:** Remove invalid, sort
-2. **Merge:** Decision point for overlap/touch check
-3. **Find gaps:** Walk through merged intervals
-4. **Choose slots:** Generate candidate slots of desired duration
+start
+:Input: busy intervals from all participants;
+
+:STEP 1: normalize(intervals);
+:• Remove pairs (start >= end);
+:• Remove None values;
+:• Sort by start ascending;
+
+if (empty?) then (yes)
+  :Whole window is free;
+  :Return [(window_start, window_end)];
+  stop
+else (no)
+endif
+
+:STEP 2: merge_overlapping();
+:merged = [];
+:current = first_interval;
+
+repeat
+  :Take next interval N;
+  if (N.start ≤ current.end?) then (yes — overlapping or touching)
+    :current.end = max(current.end, N.end);
+  else (no — gap between)
+    :Append current to merged;
+    :current = N;
+  endif
+repeat while (more intervals?)
+
+:Append final current;
+:Result: merged busy intervals (minimal, non-overlapping);
+
+:STEP 3: find_gaps();
+:cursor = window_start;
+:gaps = [];
+
+repeat
+  :Take next busy interval B;
+  if (B.start > cursor?) then (yes — free gap exists)
+    :Append (cursor, B.start) to gaps;
+  else (no)
+  endif
+  :cursor = max(cursor, B.end);
+repeat while (more busy intervals?)
+
+if (cursor < window_end?) then (yes)
+  :Append (cursor, window_end) to gaps;
+else (no)
+endif
+
+:Result: list of free (gap_start, gap_end) pairs;
+
+:STEP 4: choose_slots();
+:slots = [];
+
+repeat
+  :Take next gap G;
+  :slot_cursor = G.start;
+  repeat
+    :slot_end = slot_cursor + duration_minutes;
+    if (slot_end ≤ G.end?) then (yes — fits)
+      :Append (slot_cursor, slot_end) to slots;
+      :slot_cursor += duration_minutes;
+    else (no — too small)
+    endif
+  repeat while (slot_end ≤ G.end AND len(slots) < limit?)
+repeat while (more gaps AND len(slots) < limit?)
+
+:Return candidate slot list (capped at limit);
+stop
+
+@enduml
+```
 
 ---
 
@@ -1753,19 +1871,63 @@ Given a list of candidate meeting slots and participant constraints, rank slots 
 - **Role permission integration** (1 test)
 - **Full pipeline integration** (5 tests)
 
-#### UML Activity Diagram
+#### UML Activity Diagram: Constraint-Based Ranking
 
-**File:** `/docs/uml/activity_constraint_ranking.puml`
+```puml
+@startuml Activity_ConstraintRanking
+title Zemen — Activity Diagram: Constraint-Based Meeting Slot Ranking
 
-Shows the decision tree:
-1. **Start** → Input: slots, participants, busy intervals
-2. **For each slot:** Check required participants
-3. **Decision:** Any required busy? → Exclude and continue
-4. **For each optional:** Add penalty if busy
-5. **Check work hours:** Add penalty if off-hours
-6. **Calculate score:** Combine penalties
-7. **Sort:** By score ascending
-8. **Return** ranked list
+start
+:Input: candidate slots, required participants,\noptional participants, busy intervals;
+
+:results = [];
+:for each candidate slot S:;
+
+:Initialize score = 0;
+
+:for each required participant RP:;
+if (RP is busy during S?) then (yes)
+  :score = ∞ (EXCLUDE);
+  :break to next slot;
+else (no)
+  :continue to next RP;
+endif
+
+if (score == ∞?) then (yes — excluded)
+  :continue to next slot;
+else (no — still viable)
+endif
+
+:for each optional participant OP:;
+if (OP is busy during S?) then (yes)
+  :score += 100;
+else (no)
+endif
+
+:Check if S is outside work hours (09:00–18:00):;
+if (outside work hours?) then (yes)
+  :score += 30;
+else (no)
+endif
+
+:Calculate earliness bonus:;
+:minutes_from_start = (S.start - window_start);
+:earliness = minutes_from_start / 10;
+:score += earliness;
+
+if (score < ∞?) then (yes — include)
+  :Append (S.start, S.end, score) to results;
+else (no — skip)
+endif
+
+:Sort results by score ascending (best first);
+
+:Return results (top 10 or limit);
+
+stop
+
+@enduml
+```
 
 ---
 

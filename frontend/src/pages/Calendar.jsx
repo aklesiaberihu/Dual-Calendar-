@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import {
-  deleteEvent, listEvents, listHolidays, g2e,
+  deleteEvent, deleteEventSeries, listEvents, listHolidays, g2e,
   getProfile, getEvent, listEventParticipants,
   getGoogleStatus, exportEventToGoogle, getGoogleConnectUrl,
 } from "../api";
@@ -102,7 +102,7 @@ function GoogleIcon() {
   return <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>;
 }
 
-function EventPopover({ ev, anchor, participants, accessRole, loading, googleStatus, onClose, onDelete, onGoogleExport, onGoogleConnect }) {
+function EventPopover({ ev, anchor, participants, accessRole, loading, googleStatus, onClose, onDelete, onDeleteSeries, onGoogleExport, onGoogleConnect }) {
   const popoverRef = useRef(null);
   const [style, setStyle] = useState({ opacity: 0 });
   const [googleMsg, setGoogleMsg] = useState("");
@@ -161,10 +161,9 @@ function EventPopover({ ev, anchor, participants, accessRole, loading, googleSta
         boxShadow: "0 20px 60px rgba(0,0,0,0.65), 0 0 0 1px rgba(139,92,246,0.14)",
         overflow: "hidden", transition: "opacity 0.15s ease", ...style,
       }}>
-        
+
         <div style={{ height: 3, background: "var(--accent)" }} />
 
-        
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8, padding: "12px 14px 10px", borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: "0.66rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--accent)", marginBottom: 3 }}>Event</div>
@@ -175,14 +174,12 @@ function EventPopover({ ev, anchor, participants, accessRole, loading, googleSta
           </button>
         </div>
 
-        
         {loading && (
           <div style={{ padding: "14px", display: "flex", alignItems: "center", gap: 8, color: "var(--muted)", fontSize: "0.82rem" }}>
             <span className="spinner" style={{ width: 14, height: 14 }} /> Loading details…
           </div>
         )}
 
-        
         {!loading && (
           <div style={{ padding: "6px 0 4px" }}>
             {rows.map(row => (
@@ -194,7 +191,6 @@ function EventPopover({ ev, anchor, participants, accessRole, loading, googleSta
           </div>
         )}
 
-        
         {!loading && participants.length > 0 && (
           <div style={{ padding: "8px 14px 10px", borderTop: "1px solid rgba(255,255,255,0.07)" }}>
             <div style={{ fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--muted)", marginBottom: 6 }}>Participants</div>
@@ -217,7 +213,6 @@ function EventPopover({ ev, anchor, participants, accessRole, loading, googleSta
           </div>
         )}
 
-        
         {!loading && (
           <div style={{ padding: "8px 14px", borderTop: "1px solid rgba(255,255,255,0.07)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             {googleStatus?.connected ? (
@@ -244,11 +239,20 @@ function EventPopover({ ev, anchor, participants, accessRole, loading, googleSta
           </div>
         )}
 
-        
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "10px 14px", borderTop: "1px solid rgba(255,255,255,0.07)" }}>
-          {canDelete ? (
-            <button className="btn btnSm btnDanger" onClick={() => { onDelete(ev.id); onClose(); }}>Delete</button>
-          ) : <div />}
+        <div style={{ padding: "10px 14px", borderTop: "1px solid rgba(255,255,255,0.07)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 6 }}>
+            {canDelete && (
+              <button className="btn btnSm btnDanger" onClick={() => { onDelete(ev.id); onClose(); }}>Delete</button>
+            )}
+            {canDelete && ev.recurrence_group_id && (
+              <button className="btn btnSm"
+                style={{ color: "var(--danger)", borderColor: "rgba(239,68,68,0.35)" }}
+                onClick={() => { onDeleteSeries(ev.id); onClose(); }}
+              >
+                Delete series
+              </button>
+            )}
+          </div>
           <div style={{ display: "flex", gap: 6 }}>
             {canEdit ? (
               <>
@@ -384,7 +388,10 @@ function WeekView({ year, monthIndex, dayOffset, eventsByDay, holidaysByDay, onE
               {hols.map(h=><button key={`h-${h.id}`} type="button" className="calHolidayChip" style={{marginBottom:4}} onClick={e=>onHolidayClick(h,e.currentTarget.getBoundingClientRect())}><span className="calHolidayDot"/><span className="calHolidayName">{h.name}</span></button>)}
               {evs.map(ev=>(
                 <button key={ev.id} type="button" className="calEventCard" style={{width:"100%",textAlign:"left",cursor:"pointer",marginBottom:4}} onClick={e=>onEventClick(ev,e.currentTarget.getBoundingClientRect())}>
-                  <div className="calEventCardTitle">{ev.title}</div>
+                  <div className="calEventCardTitle">
+                    {ev.recurrence_group_id && <span style={{marginRight:3,opacity:0.75,fontSize:"0.8em"}}>↺</span>}
+                    {ev.title}
+                  </div>
                   {formatLocalRange(ev)&&<div className="calEventCardTime" style={{marginTop:2}}>{formatLocalRange(ev)}</div>}
                 </button>
               ))}
@@ -473,7 +480,10 @@ function DayView({ year, monthIndex, dayOfMonth, eventsByDay, holidaysByDay, onE
                 style={{position:"absolute",top:pos.top+1,height:pos.height,left:8,right:8,borderRadius:8,background:"linear-gradient(135deg, rgba(124,58,237,0.65), rgba(99,102,241,0.55))",border:"1px solid rgba(139,92,246,0.5)",padding:"5px 10px",cursor:"pointer",pointerEvents:"all",overflow:"hidden",boxShadow:"0 2px 10px rgba(139,92,246,0.25)",backdropFilter:"blur(4px)"}}
                 onClick={e=>onEventClick(ev,e.currentTarget.getBoundingClientRect())}
               >
-                <div style={{fontSize:"0.82rem",fontWeight:700,color:"#fff",lineHeight:1.3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ev.title}</div>
+                <div style={{fontSize:"0.82rem",fontWeight:700,color:"#fff",lineHeight:1.3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                  {ev.recurrence_group_id && <span style={{marginRight:3,opacity:0.8,fontSize:"0.85em"}}>↺</span>}
+                  {ev.title}
+                </div>
                 {pos.height>38&&<div style={{fontSize:"0.71rem",color:"rgba(255,255,255,0.75)",marginTop:2}}>{formatLocalRange(ev)}{ev.timezone&&` · ${ev.timezone.split("/").pop()}`}</div>}
               </div>
             );
@@ -493,7 +503,6 @@ export default function Calendar() {
   const [currentUser, setCurrentUser] = useState(null);
   const [googleStatus, setGoogleStatus] = useState(null);
 
-  
   const [selectedEvent, setSelectedEvent] = useState(null);   
   const [eventAnchor, setEventAnchor] = useState(null);
   const [popoverParticipants, setPopoverParticipants] = useState([]);
@@ -522,7 +531,6 @@ export default function Calendar() {
 
   const grid = useMemo(() => buildMonthGrid(year, monthIndex), [year, monthIndex]);
 
-  
   useEffect(() => {
     getProfile().then(setCurrentUser).catch(() => {});
     getGoogleStatus().then(setGoogleStatus).catch(() => {});
@@ -619,7 +627,12 @@ export default function Calendar() {
     catch (e) { window.alert(e.message||"Failed to delete event"); }
   }
 
-  
+  async function handleDeleteSeries(id) {
+    if (!window.confirm("Delete ALL events in this recurring series?")) return;
+    try { await deleteEventSeries(id, "all"); await load(); }
+    catch (e) { window.alert(e.message||"Failed to delete series"); }
+  }
+
   async function openEvent(ev, rect) {
     setSelectedEvent(ev);        
     setEventAnchor(rect);
@@ -629,7 +642,7 @@ export default function Calendar() {
     setPopoverLoading(true);
 
     try {
-      
+
       const [fullEv, participants] = await Promise.all([
         getEvent(ev.id),
         listEventParticipants(ev.id),
@@ -640,7 +653,6 @@ export default function Calendar() {
       const list = Array.isArray(participants) ? participants : [];
       setPopoverParticipants(list);
 
-      
       if (currentUser) {
         const mine = list.find(p => (p.email ?? p.user_email ?? "").toLowerCase() === (currentUser.email || "").toLowerCase());
         if (mine) setPopoverAccessRole(mine.role);
@@ -648,7 +660,7 @@ export default function Calendar() {
         else setPopoverAccessRole("viewer");
       }
     } catch {
-      
+
       if (currentUser && ev.user_id === currentUser.id) setPopoverAccessRole("owner");
     } finally {
       setPopoverLoading(false);
@@ -691,7 +703,6 @@ export default function Calendar() {
   return (
     <div className="page" style={{ position: "relative" }}>
 
-      
       <div className="calBar">
         <div className="calBarLeft">
           <h2 className="calBigLabel">{monthLabel()}</h2>
@@ -723,7 +734,6 @@ export default function Calendar() {
         </div>
       </div>
 
-      
       {showSearchPanel&&(
         <div className="calSearchPanel">
           <div className="calSearchPanelHead">{searchResults.length} result{searchResults.length!==1?"s":""} for "{searchText}"</div>
@@ -784,7 +794,10 @@ export default function Calendar() {
                             style={{cursor:"pointer"}}
                             onClick={e=>openEvent(ev,e.currentTarget.getBoundingClientRect())}
                           >
-                            <div className="calEventCardTitle">{ev.title}</div>
+                            <div className="calEventCardTitle">
+                              {ev.recurrence_group_id && <span style={{marginRight:3,opacity:0.75,fontSize:"0.8em"}}>↺</span>}
+                              {ev.title}
+                            </div>
                             {formatLocalRange(ev)&&(
                               <div className="calEventCardTime">
                                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -819,6 +832,7 @@ export default function Calendar() {
           googleStatus={googleStatus}
           onClose={()=>setSelectedEvent(null)}
           onDelete={handleDelete}
+          onDeleteSeries={handleDeleteSeries}
           onGoogleExport={handleGoogleExport}
           onGoogleConnect={handleGoogleConnect}
         />

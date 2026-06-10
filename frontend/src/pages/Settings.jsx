@@ -1,8 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  getProfile, updateProfile,
-  getGoogleStatus, getGoogleConnectUrl, disconnectGoogle,
-} from "../api";
+import { getProfile, updateProfile } from "../api";
 
 const TIMEZONES = [
   "UTC", "Africa/Addis_Ababa", "Africa/Nairobi", "Africa/Cairo",
@@ -46,11 +43,6 @@ export default function Settings() {
   const [msg, setMsg] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const [googleStatus, setGoogleStatus] = useState(null);
-  const [googleLoading, setGoogleLoading] = useState(false);
-  const [googleMsg, setGoogleMsg] = useState("");
-  const [googleError, setGoogleError] = useState("");
-
   async function load() {
     setError(""); setMsg("");
     try {
@@ -62,18 +54,8 @@ export default function Settings() {
     }
   }
 
-  async function loadGoogleStatus() {
-    try {
-      const status = await getGoogleStatus();
-      setGoogleStatus(status);
-    } catch {
-      setGoogleStatus(null);
-    }
-  }
-
   useEffect(() => {
     load();
-    loadGoogleStatus();
   }, []);
 
   async function handleSave() {
@@ -92,30 +74,6 @@ export default function Settings() {
       setError(e.message || "Failed to save profile");
     } finally {
       setSaving(false);
-    }
-  }
-
-  async function handleGoogleConnect() {
-    setGoogleError(""); setGoogleMsg(""); setGoogleLoading(true);
-    try {
-      const data = await getGoogleConnectUrl();
-      window.location.href = data.auth_url;
-    } catch (e) {
-      setGoogleError(e.message || "Failed to start Google connection");
-      setGoogleLoading(false);
-    }
-  }
-
-  async function handleGoogleDisconnect() {
-    setGoogleError(""); setGoogleMsg(""); setGoogleLoading(true);
-    try {
-      await disconnectGoogle();
-      setGoogleMsg("Google account disconnected.");
-      await loadGoogleStatus();
-    } catch (e) {
-      setGoogleError(e.message || "Failed to disconnect");
-    } finally {
-      setGoogleLoading(false);
     }
   }
 
@@ -153,7 +111,6 @@ export default function Settings() {
       {profile && (
         <div className="stack">
 
-          
           <div className="sectionCard sectionCardPad">
             <div className="settingsProfileRow">
               <Avatar email={profile.email} />
@@ -170,11 +127,9 @@ export default function Settings() {
             </div>
           </div>
 
-          
           <div className="sectionCard sectionCardPad">
             <div className="stack">
 
-              
               <div>
                 <div className="sectionHead" style={{ marginBottom: 14 }}>
                   <h3 className="sectionTitle">Personal information</h3>
@@ -199,7 +154,6 @@ export default function Settings() {
 
               <div className="formDivider"/>
 
-              
               <div>
                 <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:14 }}>
                   <CalIcon/>
@@ -256,80 +210,6 @@ export default function Settings() {
 
               <div className="formDivider"/>
 
-              
-              <div>
-                <div className="sectionHead" style={{ marginBottom: 14, alignItems:"center" }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                    <GoogleIcon/>
-                    <h3 className="sectionTitle">Google Calendar</h3>
-                  </div>
-                  {googleStatus?.connected
-                    ? <span className="badge badgeSuccess">Connected</span>
-                    : <span className="badge">Not connected</span>
-                  }
-                </div>
-
-                {googleMsg && <div className="alert alertSuccess" style={{ marginBottom:10 }}>{googleMsg}</div>}
-                {googleError && <div className="alert alertDanger" style={{ marginBottom:10 }}>{googleError}</div>}
-
-                {googleStatus?.connected ? (
-                  <div className="stack">
-                    <div className="settingsGoogleInfo">
-                      <div className="settingsGoogleRow">
-                        <span className="settingsGoogleLabel">Google account</span>
-                        <span className="settingsGoogleVal">{googleStatus.google_email || ""}</span>
-                      </div>
-                      <div className="settingsGoogleRow">
-                        <span className="settingsGoogleLabel">Calendar access</span>
-                        <span>
-                          {googleStatus.has_calendar_scope
-                            ? <span className="badge badgeSuccess">Granted</span>
-                            : <span className="badge badgeDanger">Missing, reconnect to grant</span>
-                          }
-                        </span>
-                      </div>
-                      {googleStatus.google_connected_at && (
-                        <div className="settingsGoogleRow">
-                          <span className="settingsGoogleLabel">Connected on</span>
-                          <span className="settingsGoogleVal">
-                            {new Date(googleStatus.google_connected_at).toLocaleDateString()}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                    {!googleStatus.has_calendar_scope && (
-                      <div className="alert alertWarning">
-                        Calendar export permission is missing. Disconnect and reconnect to grant calendar access.
-                      </div>
-                    )}
-                    <div className="formActions">
-                      <button className="btn btnSm" onClick={handleGoogleConnect} disabled={googleLoading} type="button">
-                        <GoogleIcon/> Reconnect
-                      </button>
-                      <button className="btn btnSm btnDanger" onClick={handleGoogleDisconnect} disabled={googleLoading} type="button">
-                        {googleLoading ? "Disconnecting..." : "Disconnect"}
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <button
-                    className="btn loginGoogleBtn"
-                    onClick={handleGoogleConnect}
-                    disabled={googleLoading}
-                    type="button"
-                    style={{ maxWidth: 280 }}
-                  >
-                    {googleLoading
-                      ? <><span className="spinner" style={{ width:15, height:15 }}/> Connecting...</>
-                      : <><GoogleIcon/> Connect Google Calendar</>
-                    }
-                  </button>
-                )}
-              </div>
-
-              <div className="formDivider"/>
-
-              
               <div className="settingsSaveRow">
                 {msg && <div className="alert alertSuccess" style={{ flex:1 }}>{msg}</div>}
                 <div className="formActions">

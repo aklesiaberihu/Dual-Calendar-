@@ -3,6 +3,8 @@
 title TITLE
 skin rose
 
+' ─── STATE MACHINE 1: Event Entity Lifecycle ───────────────────────────────
+
 [*] --> Created : user creates event
 
 Created --> Active : start_time_utc <= now\n(event begins)
@@ -13,25 +15,22 @@ Created --> Cancelled : user deletes\nwhile not started
 
 Active --> Cancelled : user deletes\nduring event
 
-Completed --> Archived : manual archive\nor auto after 90 days
-
 Cancelled --> [*] : no further action
 
 Completed --> [*] : no further action
-
-Archived --> [*] : no further action
 
 note right of Created
   Event persisted in DB
   Participants can be added
   Version = 1
-  Reminders scheduled
+  Reminder fires at start_time_utc − reminder_minutes
+  (before event begins; logged in reminder_logs)
 end note
 
 note right of Active
   start_time_utc <= now
   Event is ongoing
-  Participants notified via reminder
+  Reminder already sent (fired before Active)
   Version increments if edited
 end note
 
@@ -42,15 +41,81 @@ note right of Completed
 end note
 
 note right of Cancelled
-  Deleted from active view
-  Snapshots retained for audit
-  Participants notified
+  Hard DELETE from DB
+  Snapshots/participants cascade-deleted
+  (ondelete="CASCADE" on FK)
+  No notification sent
 end note
 
-note right of Archived
-  Moved to history
-  Not shown in default calendar view
-  Data preserved long-term
-end note
+note "**Archived state not implemented.**\nEvent model has no status column.\nDeletes are hard DELETEs.\n(aspirational / future scope)" as N_ARCHIVED
+
+' ─── STATE MACHINE 2: Repeat UI Form Flow (EventForm.jsx) ──────────────────
+
+state "Repeat UI Form" as RepeatUI {
+
+  [*] --> PresetView : EventForm mounted\n(new event only, !id)
+
+  state "PresetView" as PresetView {
+    state "Preset: Never" as S_NEVER
+    state "Preset: Active" as S_PRESET_ACTIVE
+    state "EndRepeat: Never" as S_END_NEVER
+    state "EndRepeat: On Date" as S_END_DATE
+
+    [*]              --> S_NEVER
+    S_NEVER          --> S_PRESET_ACTIVE  : user selects\nday/week/month/year preset
+    S_PRESET_ACTIVE  --> S_NEVER          : user selects Never
+    S_PRESET_ACTIVE  --> S_END_NEVER      : repeatPreset != "never"
+    S_END_NEVER      --> S_END_DATE       : user selects "On Date"
+    S_END_DATE       --> S_END_NEVER      : user selects "Never"
+
+    note right of S_END_DATE
+      InlineCalendar widget rendered
+      repeatUntilDate bound to selected cell
+      End Date display label updates live
+    end note
+  }
+
+  PresetView --> CustomPanel : user selects\n"Custom" preset\n(showCustomPanel = true)
+
+  state "CustomPanel" as CustomPanel {
+    state "FrequencySelect" as S_FREQ
+    state "IntervalWheel" as S_WHEEL
+    state "DayCheckboxes" as S_DAYS
+
+    [*]        --> S_FREQ
+    S_FREQ     --> S_WHEEL   : frequency confirmed
+    S_WHEEL    --> S_DAYS    : frequency = "weekly"
+    S_WHEEL    --> S_FREQ    : frequency != "weekly"\n(byday reset to [])
+    S_DAYS     --> S_WHEEL   : byday updated
+
+    note right of S_WHEEL
+      TwoColumnWheelPicker
+      scroll-snap, 3-item height
+      number + unit label per row
+    end note
+
+    note right of S_DAYS
+      Rendered only when frequency = "weekly"
+      Multi-select checkboxes (SUN..SAT)
+      Codes match backend byday expectation
+    end note
+  }
+
+  CustomPanel --> PresetView : user taps Back\n(showCustomPanel = false)
+
+  note right of RepeatUI
+    getRecurrencePayload() maps UI state
+    to backend fields on form submit:
+      preset "never"      → recurrence_rule: "none"
+      preset "every_day"   → rule: "daily",   interval: 1
+      preset "every_week"  → rule: "weekly",  interval: 1
+      preset "every_2_weeks" → rule: "weekly", interval: 2
+      preset "every_month" → rule: "monthly", interval: 1
+      preset "every_year"  → rule: "monthly", interval: 12  (no yearly in backend)
+      custom               → rule: daily|weekly|monthly, interval: wheel value
+      endRepeat "never"    → recurrence_end_count: 365  (backend cap: 1-365)
+      endRepeat "on_date"  → recurrence_end_until: repeatUntilDate
+  end note
+}
 
 @enduml

@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import {
   createEvent, getEvent, updateEvent, e2g, g2e,
-  rankEventSlots, listEventParticipants, shareEvent,
+  rankEventSlots, rankSlotsByParticipants, listEventParticipants, shareEvent,
   removeEventParticipant, getProfile, getGoogleStatus,
   getGoogleConnectUrl, disconnectGoogle, exportEventToGoogle,
 } from "../api";
@@ -22,19 +22,53 @@ const REMINDER_PRESETS = [
   { label: "Custom…", value: "custom" },
 ];
 
+const REPEAT_PRESETS = [
+  { value: "never",         label: "Never" },
+  { value: "every_day",     label: "Every Day" },
+  { value: "every_week",    label: "Every Week" },
+  { value: "every_2_weeks", label: "Every 2 Weeks" },
+  { value: "every_month",   label: "Every Month" },
+  { value: "every_year",    label: "Every Year" },
+  { value: "custom",        label: "Custom" },
+];
+
+const CUSTOM_FREQ_OPTIONS = [
+  { value: "daily",   label: "Daily" },
+  { value: "weekly",  label: "Weekly" },
+  { value: "monthly", label: "Monthly" },
+];
+
+const WEEK_DAYS_LIST = [
+  { code: "SUN", label: "Sunday" },
+  { code: "MON", label: "Monday" },
+  { code: "TUE", label: "Tuesday" },
+  { code: "WED", label: "Wednesday" },
+  { code: "THU", label: "Thursday" },
+  { code: "FRI", label: "Friday" },
+  { code: "SAT", label: "Saturday" },
+];
+
 function pad2(n) { return String(n).padStart(2, "0"); }
+
+function to12h(hhmm) {
+  if (!hhmm) return "";
+  const [h, m] = hhmm.split(":").map(Number);
+  return `${h % 12 || 12}:${pad2(m)} ${h >= 12 ? "PM" : "AM"}`;
+}
 
 function parseApiDate(value) {
   if (!value) return null;
-  const localLike = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(value) && !value.endsWith("Z");
-  if (localLike) {
-    const [datePart, timePartRaw] = value.split("T");
-    const [year, month, day] = datePart.split("-").map(Number);
-    const [hour, minute] = timePartRaw.slice(0, 5).split(":").map(Number);
-    return new Date(year, month - 1, day, hour, minute, 0, 0);
-  }
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? null : d;
+
+  const normalized = String(value)
+    .replace(/Z$/i, "")
+    .replace(/[+-]\d{2}:\d{2}$/, "");
+  const m = normalized.match(
+    /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?/
+  );
+  if (!m) return null;
+  const [, y, mo, d, h = "0", min = "0"] = m;
+  const dt = new Date(Number(y), Number(mo) - 1, Number(d), Number(h), Number(min), 0, 0);
+  return Number.isNaN(dt.getTime()) ? null : dt;
 }
 
 function toInputValue(dtIso) {
@@ -45,6 +79,30 @@ function toInputValue(dtIso) {
 }
 
 function fromInputValue(v) { if (!v) return null; return `${v}:00`; }
+function toSchedulingUTC(v) { if (!v) return null; return new Date(v).toISOString(); }
+
+function convertTimezone(naiveDT, fromTz, toTz) {
+  if (!naiveDT) return "";
+  try {
+    const clean = naiveDT.replace("T", " ").slice(0, 16);
+    const [datePart, timePart = "00:00"] = clean.split(" ");
+    const [y, mo, d] = datePart.split("-").map(Number);
+    const [h, min] = timePart.split(":").map(Number);
+
+    const approxMs = Date.UTC(y, mo - 1, d, h, min);
+
+    const localInFrom = new Date(approxMs).toLocaleString("sv", { timeZone: fromTz });
+
+    const fromOffset = new Date(localInFrom.replace(" ", "T") + "Z").getTime() - approxMs;
+
+    const trueUtcMs = approxMs - fromOffset;
+
+    const result = new Date(trueUtcMs).toLocaleString("sv", { timeZone: toTz });
+    return result.slice(0, 16).replace(" ", "T");
+  } catch {
+    return naiveDT.slice(0, 16);
+  }
+}
 
 function formatSlotTime(value) {
   if (!value) return "—";
@@ -211,49 +269,96 @@ function ParticipantRow({ email, role, userId, canManage, onRemove }) {
   );
 }
 
+const DURATION_PRESETS = [
+  { label: "15 minutes",  value: 15 },
+  { label: "30 minutes",  value: 30 },
+  { label: "45 minutes",  value: 45 },
+  { label: "1 hour",      value: 60 },
+  { label: "1.5 hours",   value: 90 },
+  { label: "2 hours",     value: 120 },
+  { label: "3 hours",     value: 180 },
+  { label: "4 hours",     value: 240 },
+  { label: "Custom…",     value: "custom" },
+];
+
+function ratingLabel(raw) {
+  if (!raw) return "";
+  const parts = raw.trim().split(/\s+/);
+  return parts[parts.length - 1];
+}
+
+function ratingColor(raw) {
+  switch (ratingLabel(raw).toUpperCase()) {
+    case "IDEAL":     return "#22c55e";
+    case "EXCELLENT": return "#60a5fa";
+    case "GOOD":      return "#facc15";
+    case "FAIR":      return "#fb923c";
+    case "POOR":      return "#f87171";
+    default:          return "var(--muted)";
+  }
+}
+
 function SlotCard({ slot, idx, onApply }) {
   const startTime = formatSlotTime(slot.start_local || slot.start);
-  const endTime = formatSlotTime(slot.end_local || slot.end);
-  const isGood = slot.score === 0;
+  const endTime   = formatSlotTime(slot.end_local   || slot.end);
+  const label     = ratingLabel(slot.rating);
+  const color     = ratingColor(slot.rating);
+  const reasons   = Array.isArray(slot.reasons) ? slot.reasons : [];
+  const hasIssue  = reasons.some(r => /conflict|busy/i.test(r));
 
   return (
     <div
       onClick={() => onApply(slot)}
       style={{
-        display:"flex", alignItems:"center", justifyContent:"space-between",
-        gap:12, padding:"14px 16px",
-        borderRadius:10, cursor:"pointer",
-        border: isGood ? "1px solid rgba(34,197,94,0.3)" : "1px solid var(--border)",
-        background: isGood ? "rgba(34,197,94,0.05)" : "rgba(255,255,255,0.03)",
-        transition:"all 150ms ease",
+        display: "flex", flexDirection: "column", gap: 6,
+        padding: "12px 16px", borderRadius: 10, cursor: "pointer",
+        border: "1px solid var(--border)",
+        background: "rgba(255,255,255,0.02)",
+        transition: "border-color 150ms ease",
       }}
       onMouseEnter={e => e.currentTarget.style.borderColor = "var(--accent-border)"}
-      onMouseLeave={e => e.currentTarget.style.borderColor = isGood ? "rgba(34,197,94,0.3)" : "var(--border)"}
+      onMouseLeave={e => e.currentTarget.style.borderColor = "var(--border)"}
     >
-      <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-        <div style={{ width:28, height:28, borderRadius:"50%", background: isGood ? "var(--success-soft)" : "var(--accent-soft)", border: `1px solid ${isGood?"rgba(34,197,94,0.3)":"var(--accent-border)"}`, display:"grid", placeItems:"center", color: isGood ? "var(--success)" : "#c4b5fd", fontSize:"0.72rem", fontWeight:800, flexShrink:0 }}>
-          {idx+1}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{
+            width: 26, height: 26, borderRadius: "50%",
+            background: "var(--accent-soft)", border: "1px solid var(--accent-border)",
+            display: "grid", placeItems: "center",
+            color: "#c4b5fd", fontSize: "0.7rem", fontWeight: 800, flexShrink: 0,
+          }}>
+            {idx + 1}
+          </div>
+          <div>
+            <div style={{ fontSize: "0.9rem", fontWeight: 700, color: "var(--text)" }}>{startTime}</div>
+            <div style={{ fontSize: "0.76rem", color: "var(--muted)", marginTop: 1 }}>until {endTime}</div>
+          </div>
         </div>
-        <div>
-          <div style={{ fontSize:"0.92rem", fontWeight:700, color:"var(--text)" }}>{startTime}</div>
-          <div style={{ fontSize:"0.78rem", color:"var(--muted)", marginTop:2 }}>until {endTime}</div>
-        </div>
-      </div>
-      <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-        {isGood && <span style={{ fontSize:"0.72rem", color:"var(--success)", fontWeight:600, padding:"2px 8px", borderRadius:99, border:"1px solid rgba(34,197,94,0.3)", background:"var(--success-soft)" }}>No conflicts</span>}
-        {!isGood && <span style={{ fontSize:"0.72rem", color:"var(--muted)", fontWeight:600, padding:"2px 8px", borderRadius:99, border:"1px solid var(--border)", background:"rgba(255,255,255,0.03)" }}>{slot.score} conflict{slot.score!==1?"s":""}</span>}
-        <button type="button" className="btn btnPrimary btnSm" style={{ fontSize:"0.78rem", padding:"0 12px", minHeight:30 }}
-          onClick={e => { e.stopPropagation(); onApply(slot); }}>
+        <button
+          type="button" className="btn btnPrimary btnSm"
+          style={{ fontSize: "0.78rem", padding: "0 12px", minHeight: 30 }}
+          onClick={e => { e.stopPropagation(); onApply(slot); }}
+        >
           Use →
         </button>
       </div>
+      {hasIssue && reasons.length > 0 && (
+        <div style={{ fontSize: "0.73rem", paddingLeft: 36, color: "#fb923c" }}>
+          {reasons.join(" · ")}
+        </div>
+      )}
+      {!hasIssue && reasons.some(r => /outside/i.test(r)) && (
+        <div style={{ fontSize: "0.73rem", paddingLeft: 36, color: "var(--muted)" }}>
+          Outside standard work hours
+        </div>
+      )}
     </div>
   );
 }
 
-function SmartSchedulingPanel({ onGetEventId, timezone, onApplySlot, participants = [] }) {
-  const [rankDurFrom, setRankDurFrom] = useState("09:00");
-  const [rankDurTo, setRankDurTo] = useState("10:00");
+function SmartSchedulingPanel({ eventId, onGetEventId, timezone, onApplySlot, participants = [], myEmail = "" }) {
+  const [durationPreset,  setDurationPreset]  = useState(60);
+  const [durationCustom,  setDurationCustom]  = useState("60");
   const [rankWindowStart, setRankWindowStart] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}T08:00`;
@@ -263,61 +368,68 @@ function SmartSchedulingPanel({ onGetEventId, timezone, onApplySlot, participant
     return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}T18:00`;
   });
   const [rankResults, setRankResults] = useState(null);
-  const [rankError, setRankError] = useState("");
-  const [ranking, setRanking] = useState(false);
+  const [rankError,   setRankError]   = useState("");
+  const [ranking,     setRanking]     = useState(false);
 
-  const rankDuration = (() => {
-    const [fh, fm] = rankDurFrom.split(":").map(Number);
-    const [th, tm] = rankDurTo.split(":").map(Number);
-    const mins = (th * 60 + tm) - (fh * 60 + fm);
-    return mins > 0 ? mins : 60;
-  })();
+  const rankDuration = durationPreset === "custom"
+    ? Math.max(1, Number(durationCustom) || 60)
+    : Number(durationPreset);
 
   async function handleRank() {
     if (!rankWindowStart || !rankWindowEnd) { setRankError("Set both window start and end."); return; }
     setRankError(""); setRankResults(null); setRanking(true);
     try {
-      const { eventId, confirmedParticipants } = await onGetEventId();
-      if (!eventId) { setRankError("Could not prepare the event. Please add a title first."); setRanking(false); return; }
-      
-      const requiredIds = confirmedParticipants.map(p => p.user_id).filter(Boolean).join(",");
-      const data = await rankEventSlots(Number(eventId), {
-        duration_minutes: String(rankDuration),
-        window_start_utc: fromInputValue(rankWindowStart),
-        window_end_utc: fromInputValue(rankWindowEnd),
-        max_results: "5", candidate_limit: "25",
-        prefer_earlier: "true", work_start_hour: "9", work_end_hour: "17",
-        required_user_ids: requiredIds,
-        optional_user_ids: "",
+      const baseParams = {
+        duration_minutes:  String(rankDuration),
+        window_start_utc:  toSchedulingUTC(rankWindowStart),
+        window_end_utc:    toSchedulingUTC(rankWindowEnd),
+        max_results: "5",  candidate_limit: "25",
+        work_start_hour: "9", work_end_hour: "17",
         display_timezone: timezone || "UTC",
-      });
+      };
+      const data = eventId
+        ? await rankEventSlots(Number(eventId), baseParams)
+        : await rankSlotsByParticipants({
+            ...baseParams,
+            participant_emails: participants.map(p => p.email).filter(Boolean).join(","),
+          });
       setRankResults(data);
-    } catch(e) {
+    } catch (e) {
       setRankError(e.message || "Failed to find slots.");
     } finally { setRanking(false); }
   }
 
   return (
-    <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-      <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-        <div style={{ fontSize:"0.78rem", fontWeight:600, color:"var(--muted-2)" }}>Event duration</div>
-        <div style={{ display:"flex", alignItems:"flex-end", gap:10 }}>
-          <label className="label" style={{ flex:1, marginBottom:0 }}>
-            From
-            <input className="input" type="time" value={rankDurFrom} onChange={e => setRankDurFrom(e.target.value)}/>
-          </label>
-          <span style={{ color:"var(--muted)", paddingBottom:10, flexShrink:0 }}>→</span>
-          <label className="label" style={{ flex:1, marginBottom:0 }}>
-            To
-            <input className="input" type="time" value={rankDurTo} onChange={e => setRankDurTo(e.target.value)}/>
-          </label>
-          <span style={{ fontSize:"0.78rem", color:"var(--muted)", fontWeight:600, paddingBottom:10, flexShrink:0 }}>
-            {rankDuration >= 60
-              ? `${Math.floor(rankDuration/60)}h${rankDuration%60>0?` ${rankDuration%60}m`:""}`
-              : `${rankDuration}m`}
-          </span>
-        </div>
-      </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+
+      <label className="label" style={{ marginBottom: 0 }}>
+        Event duration
+        <select
+          className="input"
+          value={durationPreset}
+          onChange={e => setDurationPreset(e.target.value === "custom" ? "custom" : Number(e.target.value))}
+        >
+          {DURATION_PRESETS.map(p => (
+            <option key={p.value} value={p.value}>{p.label}</option>
+          ))}
+        </select>
+      </label>
+
+      {durationPreset === "custom" && (
+        <label className="label" style={{ marginBottom: 0 }}>
+          Custom duration (minutes)
+          <input
+            className="input"
+            type="number"
+            min="1"
+            max="1440"
+            value={durationCustom}
+            onChange={e => setDurationCustom(e.target.value)}
+            placeholder="e.g. 75"
+          />
+        </label>
+      )}
+
       <div className="formGrid">
         <label className="label">
           Search from
@@ -328,89 +440,340 @@ function SmartSchedulingPanel({ onGetEventId, timezone, onApplySlot, participant
           <input className="input" type="datetime-local" value={rankWindowEnd} onChange={e => setRankWindowEnd(e.target.value)}/>
         </label>
       </div>
-      <button type="button" className="btn btnPrimary" onClick={handleRank} disabled={ranking} style={{ alignSelf:"flex-start" }}>
-        {ranking ? <><span className="spinner" style={{ width:14, height:14, borderTopColor:"#fff" }}/> Searching…</> : <><SparkleIcon /> Find best time</>}
+
+      <button type="button" className="btn btnPrimary" onClick={handleRank} disabled={ranking} style={{ alignSelf: "flex-start" }}>
+        {ranking
+          ? <><span className="spinner" style={{ width: 14, height: 14, borderTopColor: "#fff" }}/> Searching…</>
+          : <><SparkleIcon /> Find best time</>}
       </button>
+
       {rankError && <div className="alert alertDanger">{rankError}</div>}
+
       {rankResults && (
-        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-          <div style={{ fontSize:"0.82rem", color:"var(--muted)", fontWeight:500 }}>
-            {rankResults.ranked_slots?.length ? "Available slots, click to use" : "No slots found, try a wider window"}
-          </div>
-          {rankResults.ranked_slots?.length
-            ? rankResults.ranked_slots.map((slot, idx) => <SlotCard key={idx} slot={slot} idx={idx} onApply={onApplySlot}/>)
-            : <div className="alert">No slots found. Try widening the search window.</div>}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+
+          {rankResults.conflicts_detected?.length > 0 ? (
+            <div style={{
+              background: "rgba(251,146,60,0.06)", border: "1px solid rgba(251,146,60,0.2)",
+              borderRadius: 8, padding: "12px 14px",
+              display: "flex", flexDirection: "column", gap: 5,
+            }}>
+              <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "#fb923c", marginBottom: 2 }}>
+                Conflicts detected
+              </div>
+              {rankResults.conflicts_detected.map(c => {
+                const isMe = myEmail && c.email === myEmail;
+                return (
+                  <div key={c.email} style={{ fontSize: "0.78rem", color: "var(--text)", lineHeight: 1.5 }}>
+                    {isMe ? (
+                      <>
+                        <span style={{ fontWeight: 600 }}>You</span>
+                        {" have a conflicting schedule: "}
+                        <span style={{ color: "var(--muted)" }}>
+                          {c.busy_intervals.map(b =>
+                            `${formatSlotTime(b.start_local)} – ${formatSlotTime(b.end_local)}`
+                          ).join(", ")}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span style={{ fontWeight: 600 }}>{c.email}</span>
+                        {" is busy within the selected timeframe."}
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : rankResults.ranked_slots?.length > 0 ? (
+            <div style={{ fontSize: "0.78rem", color: "var(--muted)" }}>
+              No conflicts — all participants are free in this window.
+            </div>
+          ) : null}
+
+          {rankResults.ranked_slots?.length > 0 ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ fontSize: "0.76rem", fontWeight: 600, color: "var(--muted-2)", letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                Best available times
+              </div>
+              {rankResults.ranked_slots.map((slot, idx) => (
+                <SlotCard key={idx} slot={slot} idx={idx} onApply={onApplySlot}/>
+              ))}
+            </div>
+          ) : (
+            <div className="alert">
+              No available slots found. Try a wider search window or a shorter duration.
+            </div>
+          )}
+
         </div>
       )}
     </div>
   );
 }
 
-function EventTypeSelector({ onSelect }) {
+function AppleSelect({ value, onChange, options, disabled = false }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function close(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+
+  const selected = options.find(o => o.value === value);
+
   return (
-    <div className="pageNarrow" style={{ maxWidth:620, margin:"0 auto" }}>
-      <div style={{ marginBottom:32 }}>
-        <h1 className="h1">Create an event</h1>
-        <p style={{ color:"var(--muted)", fontSize:"0.95rem", marginTop:8 }}>What kind of event are you creating?</p>
+    <div ref={ref} style={{ position: "relative" }}>
+      <button type="button" onClick={() => !disabled && setOpen(o => !o)}
+        style={{ background: "none", border: "none", cursor: disabled ? "default" : "pointer", display: "flex", alignItems: "center", gap: 2, color: "var(--muted)", fontSize: "0.93rem", fontWeight: 500, padding: "2px 0" }}>
+        {selected?.label}
+        <span style={{ display: "flex", flexDirection: "column", lineHeight: 0.85, color: "var(--muted)", marginLeft: 3, fontSize: "0.6rem" }}>
+          <span>▲</span><span>▼</span>
+        </span>
+      </button>
+      {open && (
+        <div style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 300, background: "rgba(14,21,42,0.98)", backdropFilter: "blur(12px)", borderRadius: 14, boxShadow: "0 4px 28px rgba(0,0,0,0.55), 0 0 0 1px rgba(148,163,184,0.12)", minWidth: 195, overflow: "hidden" }}>
+          {options.map((opt, i) => (
+            <button key={opt.value} type="button"
+              onClick={() => { onChange(opt.value); setOpen(false); }}
+              style={{ display: "flex", alignItems: "center", width: "100%", padding: "13px 18px", background: "none", border: "none", cursor: "pointer", borderTop: i > 0 ? "1px solid rgba(148,163,184,0.1)" : "none", fontSize: "1rem", color: "var(--text)", textAlign: "left", gap: 10, fontWeight: 400 }}>
+              <span style={{ width: 20, display: "flex", justifyContent: "center", flexShrink: 0 }}>
+                {opt.value === value && (
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12"/>
+                  </svg>
+                )}
+              </span>
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AppleRow({ label, right, last = false }) {
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px", minHeight: 50 }}>
+        <span style={{ fontSize: "0.95rem", fontWeight: 600, color: "var(--text)", letterSpacing: "-0.01em" }}>{label}</span>
+        <div>{right}</div>
+      </div>
+      {!last && <div style={{ height: 1, background: "var(--border)", marginLeft: 18 }}/>}
+    </div>
+  );
+}
+
+function TwoColumnWheelPicker({ value, onChange, max, unitLabel }) {
+  const ITEM_H = 44;
+  const min = 1;
+  const items = Array.from({ length: max - min + 1 }, (_, i) => i + min);
+  const ref = useRef(null);
+  const scrollTimer = useRef(null);
+  const isScrolling = useRef(false);
+
+  useEffect(() => {
+    if (ref.current) ref.current.scrollTop = (value - min) * ITEM_H;
+  }, []);
+
+  useEffect(() => {
+    if (ref.current && !isScrolling.current) {
+      ref.current.scrollTo({ top: (value - min) * ITEM_H, behavior: "smooth" });
+    }
+  }, [value]);
+
+  function handleScroll() {
+    isScrolling.current = true;
+    clearTimeout(scrollTimer.current);
+    scrollTimer.current = setTimeout(() => {
+      isScrolling.current = false;
+      if (!ref.current) return;
+      const idx = Math.round(ref.current.scrollTop / ITEM_H);
+      const clamped = Math.max(0, Math.min(items.length - 1, idx));
+      onChange(items[clamped]);
+    }, 80);
+  }
+
+  return (
+    <div style={{ position: "relative", height: ITEM_H * 3, overflow: "hidden", borderRadius: 12 }}>
+      <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: ITEM_H, background: "linear-gradient(to bottom, #0a1020 55%, transparent)", pointerEvents: "none", zIndex: 2 }}/>
+      <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: ITEM_H, background: "linear-gradient(to top, #0a1020 55%, transparent)", pointerEvents: "none", zIndex: 2 }}/>
+      <div style={{ position: "absolute", top: ITEM_H, left: 0, right: 0, height: ITEM_H, background: "rgba(255,255,255,0.07)", borderRadius: 10, pointerEvents: "none", zIndex: 1 }}/>
+      <div ref={ref} onScroll={handleScroll}
+        style={{ height: "100%", overflowY: "scroll", scrollSnapType: "y mandatory", scrollbarWidth: "none", position: "relative", zIndex: 0 }}>
+        <div style={{ height: ITEM_H }}/>
+        {items.map(n => (
+          <div key={n}
+            style={{ height: ITEM_H, display: "flex", alignItems: "center", justifyContent: "center", gap: 14, scrollSnapAlign: "center", cursor: "pointer" }}
+            onClick={() => {
+              onChange(n);
+              if (ref.current) ref.current.scrollTo({ top: (n - min) * ITEM_H, behavior: "smooth" });
+            }}>
+            <span style={{ fontSize: "1.35rem", fontWeight: n === value ? 700 : 400, color: n === value ? "var(--text)" : "var(--muted)", minWidth: 32, textAlign: "right" }}>
+              {n}
+            </span>
+            <span style={{ fontSize: "1.35rem", fontWeight: 400, color: n === value ? "var(--text)" : "var(--muted)", minWidth: 56 }}>
+              {unitLabel}
+            </span>
+          </div>
+        ))}
+        <div style={{ height: ITEM_H }}/>
+      </div>
+    </div>
+  );
+}
+
+function InlineCalendar({ value, onChange, minDate }) {
+  const today = new Date();
+  const initDate = value ? new Date(value + "T12:00:00") : today;
+  const [viewYear, setViewYear] = useState(initDate.getFullYear());
+  const [viewMonth, setViewMonth] = useState(initDate.getMonth());
+
+  const todayStr = `${today.getFullYear()}-${pad2(today.getMonth()+1)}-${pad2(today.getDate())}`;
+
+  const total   = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const startAt = new Date(viewYear, viewMonth, 1).getDay();
+  const cells   = [...Array(startAt).fill(null), ...Array.from({ length: total }, (_, i) => i + 1)];
+  const monthName = new Date(viewYear, viewMonth, 1).toLocaleString("en", { month: "long" });
+
+  function prevMonth() {
+    if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1); }
+    else setViewMonth(m => m - 1);
+  }
+  function nextMonth() {
+    if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y + 1); }
+    else setViewMonth(m => m + 1);
+  }
+
+  function selectDay(d) {
+    const str = `${viewYear}-${pad2(viewMonth + 1)}-${pad2(d)}`;
+    if (minDate && str < minDate) return;
+    onChange(str);
+  }
+
+  return (
+    <div style={{ padding: "4px 14px 18px" }}>
+      <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
+        <span style={{ fontWeight: 700, fontSize: "0.93rem", flex: 1, color: "var(--text)", display: "flex", alignItems: "center", gap: 4 }}>
+          {monthName} {viewYear}
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        </span>
+        <button type="button" onClick={prevMonth} style={{ background: "none", border: "none", cursor: "pointer", padding: "4px 8px", color: "var(--muted)" }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <button type="button" onClick={nextMonth} style={{ background: "none", border: "none", cursor: "pointer", padding: "4px 8px", color: "var(--muted)" }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", marginBottom: 4 }}>
+        {["S","M","T","W","T","F","S"].map((d, i) => (
+          <div key={i} style={{ textAlign: "center", fontSize: "0.7rem", fontWeight: 600, color: "var(--muted)", padding: "2px 0" }}>{d}</div>
+        ))}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "2px 0" }}>
+        {cells.map((d, i) => {
+          if (!d) return <div key={`e${i}`}/>;
+          const ds = `${viewYear}-${pad2(viewMonth + 1)}-${pad2(d)}`;
+          const isSel = ds === value;
+          const isToday = ds === todayStr;
+          const isDisabled = minDate ? ds < minDate : false;
+          return (
+            <button key={i} type="button" onClick={() => selectDay(d)} disabled={isDisabled}
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", aspectRatio: "1", borderRadius: "50%", border: "none", cursor: isDisabled ? "default" : "pointer", background: isSel ? "var(--accent)" : "transparent", color: isSel ? "#fff" : isToday ? "var(--accent)" : "var(--text)", fontWeight: (isSel || isToday) ? 700 : 400, fontSize: "0.88rem", opacity: isDisabled ? 0.3 : 1 }}>
+              {d}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function CustomRepeatPanel({ frequency, setFrequency, interval, setInterval, byday, setByday, onBack }) {
+  const maxByFreq = { daily: 365, weekly: 52, monthly: 12 };
+  const max = maxByFreq[frequency] || 52;
+  const unitLabel = { daily: "day", weekly: "week", monthly: "month" }[frequency] || "day";
+
+  useEffect(() => {
+    if (interval > max) setInterval(1);
+  }, [frequency]);
+
+  const safeInterval = Math.min(interval, max);
+
+  function customSummary() {
+    const plural = safeInterval > 1 ? `${safeInterval} ${unitLabel}s` : unitLabel;
+    return `Event will occur every ${plural}.`;
+  }
+
+  function toggleDay(code) {
+    setByday(prev => prev.includes(code) ? prev.filter(d => d !== code) : [...prev, code]);
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <button type="button" onClick={onBack}
+          style={{ display: "flex", alignItems: "center", gap: 5, background: "rgba(128,128,128,0.13)", border: "none", cursor: "pointer", borderRadius: 20, padding: "6px 14px 6px 10px", color: "var(--text)", fontSize: "0.88rem", fontWeight: 600 }}>
+          <ArrowLeft/> Back
+        </button>
+        <span style={{ fontSize: "1rem", fontWeight: 700, color: "var(--text)", letterSpacing: "-0.02em" }}>Custom</span>
       </div>
 
-      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-        
-        <button
-          type="button"
-          onClick={() => onSelect("personal")}
-          style={{
-            display:"flex", alignItems:"center", gap:20,
-            padding:"24px 28px", borderRadius:16,
-            border:"1px solid var(--border)",
-            background:"rgba(255,255,255,0.03)",
-            cursor:"pointer", textAlign:"left", width:"100%",
-            transition:"all 150ms ease",
-          }}
-          onMouseEnter={e => { e.currentTarget.style.borderColor="var(--accent-border)"; e.currentTarget.style.background="var(--accent-soft)"; }}
-          onMouseLeave={e => { e.currentTarget.style.borderColor="var(--border)"; e.currentTarget.style.background="rgba(255,255,255,0.03)"; }}
-        >
-          <div style={{ width:52, height:52, borderRadius:14, background:"var(--accent-soft)", border:"1px solid var(--accent-border)", display:"grid", placeItems:"center", color:"#c4b5fd", flexShrink:0 }}>
-            <CalendarIcon size={24}/>
-          </div>
+      <div className="sectionCard sectionCardPad">
+        <div className="stack" style={{ gap: 16 }}>
+          <label className="label">
+            Frequency
+            <div style={{ position: "relative" }}>
+              <select className="input" value={frequency}
+                onChange={e => { setFrequency(e.target.value); if (e.target.value !== "weekly") setByday([]); }}
+                style={{ appearance: "none", WebkitAppearance: "none", paddingRight: 36, cursor: "pointer", fontWeight: 600 }}>
+                {CUSTOM_FREQ_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: "var(--muted)" }}>
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </div>
+          </label>
           <div>
-            <div style={{ fontSize:"1.05rem", fontWeight:700, color:"var(--text)", marginBottom:4 }}>Personal event</div>
-            <div style={{ fontSize:"0.88rem", color:"var(--muted)", lineHeight:1.55 }}>Just for you. Pick a date and time, add reminders and notes.</div>
-
+            <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--muted-2)", marginBottom: 4 }}>Every</div>
+            <span style={{ color: "var(--accent)", fontWeight: 600, fontSize: "0.9rem" }}>
+              {unitLabel.charAt(0).toUpperCase() + unitLabel.slice(1)}
+            </span>
           </div>
-          <div style={{ marginLeft:"auto", color:"var(--muted)" }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-          </div>
-        </button>
-
-        
-        <button
-          type="button"
-          onClick={() => onSelect("group")}
-          style={{
-            display:"flex", alignItems:"center", gap:20,
-            padding:"24px 28px", borderRadius:16,
-            border:"1px solid var(--border)",
-            background:"rgba(255,255,255,0.03)",
-            cursor:"pointer", textAlign:"left", width:"100%",
-            transition:"all 150ms ease",
-          }}
-          onMouseEnter={e => { e.currentTarget.style.borderColor="var(--accent-border)"; e.currentTarget.style.background="var(--accent-soft)"; }}
-          onMouseLeave={e => { e.currentTarget.style.borderColor="var(--border)"; e.currentTarget.style.background="rgba(255,255,255,0.03)"; }}
-        >
-          <div style={{ width:52, height:52, borderRadius:14, background:"rgba(34,197,94,0.1)", border:"1px solid rgba(34,197,94,0.25)", display:"grid", placeItems:"center", color:"var(--success)", flexShrink:0 }}>
-            <UsersIcon size={24}/>
-          </div>
-          <div>
-            <div style={{ fontSize:"1.05rem", fontWeight:700, color:"var(--text)", marginBottom:4 }}>Group event</div>
-            <div style={{ fontSize:"0.88rem", color:"var(--muted)", lineHeight:1.55 }}>Invite participants and find the best time that works for everyone.</div>
-          </div>
-          <div style={{ marginLeft:"auto", color:"var(--muted)" }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-          </div>
-        </button>
+        </div>
       </div>
 
+      <div className="sectionCard" style={{ borderRadius: 14, padding: "10px 20px" }}>
+        <TwoColumnWheelPicker value={safeInterval} onChange={setInterval} max={max} unitLabel={unitLabel}/>
+      </div>
+
+      <div style={{ fontSize: "0.85rem", color: "var(--muted)", paddingLeft: 4 }}>
+        {customSummary()}
+      </div>
+
+      {frequency === "weekly" && (
+        <div className="sectionCard" style={{ padding: 0, borderRadius: 14, overflow: "hidden" }}>
+          {WEEK_DAYS_LIST.map((day, i) => (
+            <div key={day.code}>
+              <button type="button" onClick={() => toggleDay(day.code)}
+                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", padding: "15px 18px", background: "none", border: "none", cursor: "pointer", color: "var(--text)" }}>
+                <span style={{ fontSize: "0.95rem", fontWeight: 500 }}>{day.label}</span>
+                {byday.includes(day.code) && (
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12"/>
+                  </svg>
+                )}
+              </button>
+              {i < WEEK_DAYS_LIST.length - 1 && <div style={{ height: 1, background: "var(--border)", marginLeft: 18 }}/>}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -418,9 +781,6 @@ function EventTypeSelector({ onSelect }) {
 export default function EventForm() {
   const nav = useNavigate();
   const { id } = useParams();
-
-  
-  const [eventType, setEventType] = useState(id ? "personal" : "selector");
 
   const [profile, setProfile] = useState(null);
   const [accessRole, setAccessRole] = useState(id ? "viewer" : "owner");
@@ -431,12 +791,16 @@ export default function EventForm() {
   const [description, setDescription] = useState("");
   const [gDateTime, setGDateTime] = useState("");
   const [gEndDateTime, setGEndDateTime] = useState("");
+
+  const [gDateTimeExtKey,    setGDateTimeExtKey]    = useState(0);
+  const [gEndDateTimeExtKey, setGEndDateTimeExtKey] = useState(0);
+  const [eDateTimeExtKey,    setEDateTimeExtKey]    = useState(0);
+  const [eEndDateTimeExtKey, setEEndDateTimeExtKey] = useState(0);
   const [eYear, setEYear] = useState("");
   const [eMonth, setEMonth] = useState("");
   const [eDay, setEDay] = useState("");
   const [timezone, setTimezone] = useState("Europe/Rome");
 
-  
   const [timeMode, setTimeMode] = useState("manual");
 
   const [reminderPreset, setReminderPreset] = useState("none");
@@ -445,7 +809,7 @@ export default function EventForm() {
   const [remMins, setRemMins] = useState(0);
   const [customReminderAt, setCustomReminderAt] = useState("");
   const reminderValue = useMemo(() => {
-    if (reminderPreset === "none") return null;
+    if (reminderPreset === "none") return 0;
     if (reminderPreset === "custom") {
       if (!customReminderAt || !gDateTime) return 60;
       const diffMins = Math.round((new Date(gDateTime).getTime() - new Date(customReminderAt).getTime()) / 60000);
@@ -454,18 +818,24 @@ export default function EventForm() {
     return Number(reminderPreset);
   }, [reminderPreset, customReminderAt, gDateTime]);
 
-  const [repeatType, setRepeatType] = useState("none");
-  const [repeatCount, setRepeatCount] = useState(1);
-  const [repDays, setRepDays] = useState(0);
-  const [repHours, setRepHours] = useState(0);
-  const [repMins, setRepMins] = useState(0);
-  const [repeatFrom, setRepeatFrom] = useState("");
-  const [repeatUntil, setRepeatUntil] = useState("");
+  const [repeatPreset, setRepeatPreset] = useState("never");
+  const [repeatFrequency, setRepeatFrequency] = useState("daily");
+  const [repeatInterval, setRepeatInterval] = useState(1);
+  const [repeatByday, setRepeatByday] = useState([]);
+  const [repeatEndRepeat, setRepeatEndRepeat] = useState("never");
+  const [repeatUntilDate, setRepeatUntilDate] = useState("");
+  const [showCustomPanel, setShowCustomPanel] = useState(false);
 
   const [error, setError] = useState("");
   const [conflictMsg, setConflictMsg] = useState("");
   const [msg, setMsg] = useState("");
+  const [seriesConflictMsg, setSeriesConflictMsg] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const ethioSyncTimer   = useRef(0);
+  const gSyncDebounce    = useRef(null);
+  const eSyncDebounce    = useRef(null);
+  const eEndSyncDebounce = useRef(null);
 
   const [googleStatus, setGoogleStatus] = useState(null);
   const [googleLoading, setGoogleLoading] = useState(false);
@@ -488,12 +858,8 @@ export default function EventForm() {
   const canEdit = accessRole === "owner" || accessRole === "editor";
   const canManageParticipants = accessRole === "owner";
 
-  
-  
   const [draftParticipants, setDraftParticipants] = useState([]);
 
-  
-  
   async function getOrCreateEventId() {
     if (id) return { eventId: Number(id), confirmedParticipants: participants };
     if (draftEventId) return { eventId: draftEventId, confirmedParticipants: draftParticipants };
@@ -516,12 +882,10 @@ export default function EventForm() {
       });
       setDraftEventId(draft.id);
 
-      
       for (const p of pendingParticipants) {
         try { await shareEvent(Number(draft.id), p); } catch { }
       }
 
-      
       let confirmedParticipants = [];
       try {
         const fetched = await listEventParticipants(Number(draft.id));
@@ -534,60 +898,120 @@ export default function EventForm() {
       return { eventId: draft.id, confirmedParticipants };
     } catch(e) {
       console.error("Draft creation failed:", e);
-      return { eventId: null, confirmedParticipants: [] };
+      return { eventId: null, confirmedParticipants: [], error: e.message || String(e) };
     }
   }
 
   function getRecurrencePayload() {
-    if (repeatType === "none") return { recurrence_rule:"none", recurrence_count:1 };
-    if (repeatType === "daily") return { recurrence_rule:"daily", recurrence_count:Number(repeatCount) };
-    if (repeatType === "weekly") return { recurrence_rule:"weekly", recurrence_count:Number(repeatCount) };
-    if (repeatType === "custom") {
-      const totalMins = dhmToMinutes(repDays, repHours, repMins) || 1;
-      return { recurrence_rule:"daily", recurrence_count:Math.max(1, Math.round(totalMins/1440)) };
-    }
-    return { recurrence_rule:"none", recurrence_count:1 };
-  }
+    if (repeatPreset === "never") return { recurrence_rule: "none", recurrence_count: 1 };
+    const presetMap = {
+      every_day:     { rule: "daily",   interval: 1 },
+      every_week:    { rule: "weekly",  interval: 1 },
+      every_2_weeks: { rule: "weekly",  interval: 2 },
+      every_month:   { rule: "monthly", interval: 1 },
+      every_year:    { rule: "monthly", interval: 12 },
+    };
+    const { rule, interval } = repeatPreset === "custom"
+      ? { rule: repeatFrequency, interval: repeatInterval }
+      : (presetMap[repeatPreset] || { rule: "daily", interval: 1 });
 
-  function repeatSummary() {
-    if (repeatType === "none") return null;
-    if (repeatType === "daily") return "Repeats every day";
-    if (repeatType === "weekly") return "Repeats every week";
-    if (repeatType === "custom") {
-      const parts = [];
-      if (Number(repDays)>0) parts.push(`${repDays} day(s)`);
-      if (Number(repHours)>0) parts.push(`${repHours} hr(s)`);
-      if (Number(repMins)>0) parts.push(`${repMins} min(s)`);
-      return parts.length > 0 ? `Every ${parts.join(" ")}` : "Every …";
+    const p = {
+      recurrence_rule: rule,
+      recurrence_count: 1,
+      recurrence_interval: interval,
+      recurrence_end_type: repeatEndRepeat === "on_date" ? "until" : "count",
+    };
+    if (repeatEndRepeat === "on_date" && repeatUntilDate) {
+      p.recurrence_end_until = repeatUntilDate;
+    } else {
+      p.recurrence_end_count = 365;
     }
-    return null;
+    if (rule === "weekly" && repeatByday.length > 0) {
+      p.recurrence_byday = repeatByday.join(",");
+    }
+    return p;
   }
 
   function handleApplySlot(slot) {
     const startLocal = slot.start_local || slot.start;
     const endLocal = slot.end_local || slot.end;
-    if (startLocal) { const iv = toInputValue(startLocal); setGDateTime(iv); syncEthiopianFromGregorian(iv); }
-    if (endLocal) setGEndDateTime(toInputValue(endLocal));
+    if (startLocal) {
+      const iv = toInputValue(startLocal);
+      setGDateTime(iv); setGDateTimeExtKey(k => k + 1);
+      syncEthiopianFromGregorian(iv);
+    }
+    if (endLocal) {
+      setGEndDateTime(toInputValue(endLocal)); setGEndDateTimeExtKey(k => k + 1);
+    }
     setTimeMode("manual");
   }
 
   async function syncEthiopianFromGregorian(localDateTime) {
     if (!localDateTime) { setEYear(""); setEMonth(""); setEDay(""); return; }
-    const [y,m,d] = localDateTime.slice(0,10).split("-").map(Number);
-    try { const eth = await g2e({year:y,month:m,day:d}); setEYear(String(eth.year??"")); setEMonth(String(eth.month??"")); setEDay(String(eth.day??"")); }
-    catch { setEYear(""); setEMonth(""); setEDay(""); }
+
+    const [ry, rm, rd] = localDateTime.slice(0, 10).split("-").map(Number);
+    const noon = new Date(ry, rm - 1, rd, 12, 0, 0, 0);
+    const y = noon.getFullYear();
+    const m = noon.getMonth() + 1;
+    const d = noon.getDate();
+    const reqId = ++ethioSyncTimer.current;
+    try {
+      const eth = await g2e({year:y, month:m, day:d});
+      if (reqId !== ethioSyncTimer.current) return;
+      setEYear(String(eth.year??"")); setEMonth(String(eth.month??"")); setEDay(String(eth.day??""));
+      setEDateTimeExtKey(k => k + 1);
+      setEEndDateTimeExtKey(k => k + 1);
+    } catch {
+      if (reqId !== ethioSyncTimer.current) return;
+      setEYear(""); setEMonth(""); setEDay("");
+    }
   }
 
-  async function syncGregorianFromEthiopian(year, month, day, currentTimePart="09:00") {
-    if (!year||!month||!day) { setGDateTime(""); setGEndDateTime(""); return; }
+  function handleCalendarTabSwitch(newType) {
+    if (newType === calendarType) return;
+    setGDateTime(""); setGEndDateTime("");
+    setEYear(""); setEMonth(""); setEDay("");
+    setGDateTimeExtKey(k => k + 1);
+    setGEndDateTimeExtKey(k => k + 1);
+    setEDateTimeExtKey(k => k + 1);
+    setEEndDateTimeExtKey(k => k + 1);
+    setCalendarType(newType);
+  }
+
+  const eConvertTimer    = useRef(0);
+  const eEndConvertTimer = useRef(0);
+
+  async function handleEDateTimeChange(rawVal) {
+    if (!rawVal || rawVal.length < 16) return;
+    const [eDateStr, eTimeStr = "00:00"] = rawVal.split("T");
+    const [ey, em, ed] = eDateStr.split("-").map(Number);
+    if (!ey || !em || !ed) return;
+    setEYear(String(ey)); setEMonth(String(em)); setEDay(String(ed));
+    const reqId = ++eConvertTimer.current;
     try {
-      const g = await e2g({year:Number(year),month:Number(month),day:Number(day)});
-      const localDate = `${g.year}-${pad2(g.month)}-${pad2(g.day)}`;
-      const oldStart = gDateTime ? gDateTime.slice(11,16) : currentTimePart;
-      const oldEnd = gEndDateTime ? gEndDateTime.slice(11,16) : "";
-      setGDateTime(`${localDate}T${oldStart}`);
-      if (oldEnd) setGEndDateTime(`${localDate}T${oldEnd}`);
-    } catch { setGDateTime(""); setGEndDateTime(""); }
+      const g = await e2g({ year: ey, month: em, day: ed });
+      if (reqId !== eConvertTimer.current) return;
+      const gDateStr = `${g.year}-${pad2(g.month)}-${pad2(g.day)}`;
+      const tz = timezone || "Europe/Rome";
+      const romeDT = convertTimezone(`${gDateStr}T${eTimeStr}`, "Africa/Addis_Ababa", tz);
+      setGDateTime(romeDT);
+    } catch { }
+  }
+
+  async function handleEEndDateTimeChange(rawVal) {
+    if (!rawVal || rawVal.length < 16) return;
+    const [eDateStr, eTimeStr = "00:00"] = rawVal.split("T");
+    const [ey, em, ed] = eDateStr.split("-").map(Number);
+    if (!ey || !em || !ed) return;
+    const reqId = ++eEndConvertTimer.current;
+    try {
+      const g = await e2g({ year: ey, month: em, day: ed });
+      if (reqId !== eEndConvertTimer.current) return;
+      const gDateStr = `${g.year}-${pad2(g.month)}-${pad2(g.day)}`;
+      const tz = timezone || "Europe/Rome";
+      const romeDT = convertTimezone(`${gDateStr}T${eTimeStr}`, "Africa/Addis_Ababa", tz);
+      setGEndDateTime(romeDT);
+    } catch { }
   }
 
   function buildLocalDraft() {
@@ -612,7 +1036,7 @@ export default function EventForm() {
 
   async function loadEvent() {
     if (!id) return;
-    setError(""); setConflictMsg(""); setMsg("");
+    setError(""); setConflictMsg(""); setMsg(""); setSeriesConflictMsg("");
     try {
       const [me, ev] = await Promise.all([getProfile(), getEvent(Number(id))]);
       setProfile(me); setTitle(ev.title||""); setDescription(ev.description||"");
@@ -627,18 +1051,24 @@ export default function EventForm() {
       setVersion(ev.version);
       const iv = toInputValue(ev.start_time_local||ev.start_time_utc||"");
       const eiv = toInputValue(ev.end_time_local||ev.end_time_utc||"");
-      setGDateTime(iv); setGEndDateTime(eiv);
+      setGDateTime(iv);    setGDateTimeExtKey(k => k + 1);
+      setGEndDateTime(eiv); setGEndDateTimeExtKey(k => k + 1);
       if (iv) await syncEthiopianFromGregorian(iv);
-      setCalendarType("gregorian"); setRepeatType("none"); setRepeatCount(1);
+      setCalendarType("gregorian"); setRepeatFrequency("none");
       setInitialSnapshot({ title:ev.title||"", description:ev.description||"", start_time_local:ev.start_time_local||"", end_time_local:ev.end_time_local||"", timezone:ev.timezone||"Europe/Rome", reminder_minutes:ev.reminder_minutes??null, version:ev.version });
       setConflictData(null); setShowConflictPanel(false);
       if (ev.user_id===me.id) setAccessRole("owner"); else setAccessRole("viewer");
-      
+
       await loadParticipants(id, me);
     } catch(e) { setError(e.message||"Failed to load event"); }
   }
 
   async function loadCreateContext() {
+
+    setGDateTime(""); setGEndDateTime("");
+    setEYear(""); setEMonth(""); setEDay("");
+    setGDateTimeExtKey(k => k + 1); setGEndDateTimeExtKey(k => k + 1);
+    setEDateTimeExtKey(k => k + 1); setEEndDateTimeExtKey(k => k + 1);
     try { const me = await getProfile(); setProfile(me); setAccessRole("owner"); }
     catch(e) { setError(e.message||"Failed"); }
   }
@@ -648,10 +1078,10 @@ export default function EventForm() {
   }
 
   useEffect(() => {
-    if (id) { loadEvent(); setEventType("personal"); }
+    if (id) loadEvent();
     else loadCreateContext();
     loadGoogleStatus();
-  }, [id]); 
+  }, [id]);
 
   async function handleGoogleConnect() {
     setGoogleError(""); setGoogleMsg(""); setGoogleLoading(true);
@@ -674,7 +1104,15 @@ export default function EventForm() {
       const data = await exportEventToGoogle(Number(eid));
       setGoogleMsg("Exported to Google Calendar.");
       if (data?.google_html_link) window.open(data.google_html_link,"_blank","noopener,noreferrer");
-    } catch(e) { setGoogleError(e.message||"Export failed"); }
+    } catch(e) {
+      if (e.status === 401 && e.payload?.detail?.error === "missing_calendar_scope") {
+        const authUrl = e.payload.detail.auth_url;
+        setGoogleMsg("Redirecting to authorize calendar access...");
+        setTimeout(() => window.location.href = authUrl, 500);
+      } else {
+        setGoogleError(e.message||"Export failed");
+      }
+    }
     finally { setGoogleLoading(false); }
   }
 
@@ -693,7 +1131,7 @@ export default function EventForm() {
   }
 
   async function handleReloadLatest() {
-    setError(""); setConflictMsg(""); setShowConflictPanel(false); setConflictData(null);
+    setError(""); setConflictMsg(""); setSeriesConflictMsg(""); setShowConflictPanel(false); setConflictData(null);
     await loadEvent();
   }
 
@@ -711,20 +1149,11 @@ export default function EventForm() {
   async function handleSubmit(e) {
     e.preventDefault();
     if (!canEdit) { setError("You do not have permission to edit this event."); return; }
-    setError(""); setConflictMsg(""); setMsg(""); setSaving(true);
+    setError(""); setConflictMsg(""); setMsg(""); setSeriesConflictMsg(""); setSaving(true);
     try {
-      let startLocal=null, endLocal=null;
-      if (calendarType==="gregorian") {
-        if (!gDateTime) { setError("Start time is required."); setSaving(false); return; }
-        startLocal=fromInputValue(gDateTime); endLocal=fromInputValue(gEndDateTime);
-      } else {
-        if (!eYear||!eMonth||!eDay) { setError("Please complete the Ethiopian date."); setSaving(false); return; }
-        const stp=gDateTime?gDateTime.slice(11,16):"09:00";
-        const etp=gEndDateTime?gEndDateTime.slice(11,16):"";
-        const g=await e2g({year:Number(eYear),month:Number(eMonth),day:Number(eDay)});
-        const bd=`${g.year}-${pad2(g.month)}-${pad2(g.day)}`;
-        startLocal=`${bd}T${stp}:00`; endLocal=etp?`${bd}T${etp}:00`:null;
-      }
+      if (!gDateTime) { setError("Start time is required."); setSaving(false); return; }
+      const startLocal = fromInputValue(gDateTime);
+      const endLocal   = fromInputValue(gEndDateTime);
       if (endLocal && new Date(endLocal)<=new Date(startLocal)) { setError("End time must be after start time."); setSaving(false); return; }
       const basePayload = { title, description, start_time_local:startLocal, end_time_local:endLocal, timezone, reminder_minutes:reminderValue };
 
@@ -746,14 +1175,24 @@ export default function EventForm() {
         }
         setMsg("Event created."); setTimeout(()=>nav(CALENDAR_PAGE),500);
       } else {
-        const {recurrence_rule,recurrence_count} = getRecurrencePayload();
-        const created = await createEvent({...basePayload,recurrence_rule,recurrence_count});
+        const recPayload = getRecurrencePayload();
+        const created = await createEvent({...basePayload, ...recPayload});
         if (pendingParticipants.length>0) {
           for (const p of pendingParticipants) await shareEvent(Number(created.id),p);
           setPendingParticipants([]);
         }
-        setMsg(recurrence_rule==="none"?"Event created.":"Recurring events created.");
-        setTimeout(()=>nav(CALENDAR_PAGE),500);
+        const n = created.recurrence_created;
+        const conflictCount = created.recurrence_conflicts?.length || 0;
+        setMsg(n > 1 ? `Recurring series created: ${n} events.` : "Event created.");
+        if (conflictCount > 0) {
+          setSeriesConflictMsg(
+            `${conflictCount} occurrence${conflictCount !== 1 ? "s" : ""} overlap with existing events — check your calendar.`
+          );
+        }
+        if (n <= 1 && conflictCount === 0) {
+          setTimeout(()=>nav(CALENDAR_PAGE), 700);
+        }
+
       }
     } catch(e2) {
       if (e2.status===409 && e2.payload?.code==="VERSION_CONFLICT") {
@@ -763,7 +1202,8 @@ export default function EventForm() {
         setShowConflictPanel(true); setSaving(false); return;
       }
       const message = e2.message||"Failed";
-      setError(String(message).toLowerCase().includes("target user not found")?"That email is not a registered Zemen user yet.":String(message));
+      const errorText = String(message);
+      setError(errorText.toLowerCase().includes("target user not found")?"That email is not a registered Zemen user yet.":errorText);
     } finally { setSaving(false); }
   }
 
@@ -777,95 +1217,136 @@ export default function EventForm() {
 
   const serverChanges = useMemo(()=>getChangedFields(conflictData?.initial,conflictData?.server),[conflictData]);
   const localChanges = useMemo(()=>getChangedFields(conflictData?.initial,conflictData?.local),[conflictData]);
-  const summary = repeatSummary();
 
-  
-  if (eventType === "selector") {
-    return <EventTypeSelector onSelect={setEventType}/>;
-  }
-
-  
-  const isGroup = eventType === "group";
+  const isGroup = pendingParticipants.length > 0 || participants.filter(p => p.role !== "owner").length > 0;
 
   function DateTimeSection() {
     return (
       <div className="sectionCard sectionCardPad">
-        <h3 className="sectionTitle" style={{ marginBottom:6 }}>
-          {isGroup ? "When is this event?" : "Date & time"}
-        </h3>
-        {isGroup && (
-          <p style={{ margin:"0 0 18px", fontSize:"0.88rem", color:"var(--muted)" }}>
-            Pick a time yourself or let us find the best slot for all participants.
-          </p>
+        <h3 className="sectionTitle" style={{ marginBottom:16 }}>Date & time</h3>
+
+        <div style={{ display:"flex", gap:8, marginBottom:20 }}>
+          {[
+            { key:"manual", label:"Pick manually", icon:<CalendarIcon size={15}/> },
+            { key:"smart",  label:"Find best time", icon:<SparkleIcon/> },
+          ].map(opt => (
+            <button key={opt.key} type="button" onClick={() => setTimeMode(opt.key)} style={{
+              display:"flex", alignItems:"center", justifyContent:"center", gap:8,
+              padding:"10px 16px", borderRadius:10, flex:1,
+              border: timeMode===opt.key ? "1px solid var(--accent-border)" : "1px solid var(--border)",
+              background: timeMode===opt.key ? "var(--accent-soft)" : "rgba(255,255,255,0.03)",
+              color: timeMode===opt.key ? "var(--text)" : "var(--muted)",
+              fontWeight:600, fontSize:"0.88rem", cursor:"pointer", transition:"all 150ms ease",
+            }}>
+              {opt.icon}
+              <span>{opt.label}</span>
+            </button>
+          ))}
+        </div>
+
+        {timeMode === "smart" && (
+          <SmartSchedulingPanel eventId={id ? Number(id) : (draftEventId ? Number(draftEventId) : null)} onGetEventId={getOrCreateEventId} timezone={timezone} onApplySlot={handleApplySlot} participants={[...participants, ...pendingParticipants]} myEmail={profile?.email || ""}/>
         )}
 
-        
-        {(isGroup || !!id) && (
-          <div style={{ display:"flex", gap:8, marginBottom:20 }}>
-            {[
-              { key:"manual", label:"Pick manually", sub:"Choose date & time" },
-              { key:"smart", label:"Find best time", sub:"Best slot for everyone" },
-            ].map(opt => (
-              <button key={opt.key} type="button" onClick={() => setTimeMode(opt.key)} style={{
-                display:"flex", alignItems:"center", gap:8,
-                padding:"10px 16px", borderRadius:10, flex:1,
-                border: timeMode===opt.key ? "1px solid var(--accent-border)" : "1px solid var(--border)",
-                background: timeMode===opt.key ? "var(--accent-soft)" : "rgba(255,255,255,0.03)",
-                color: timeMode===opt.key ? "var(--text)" : "var(--muted)",
-                fontWeight:600, fontSize:"0.88rem", cursor:"pointer", transition:"all 150ms ease",
-              }}>
-                {opt.key === "smart" ? <SparkleIcon/> : <CalendarIcon size={15}/>}
-                <div style={{ textAlign:"left" }}>
-                  <div>{opt.label}</div>
-                  <div style={{ fontSize:"0.72rem", fontWeight:400, opacity:0.7 }}>{opt.sub}</div>
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-
-        
-        {(isGroup || !!id) && timeMode === "smart" && (
-          <SmartSchedulingPanel onGetEventId={getOrCreateEventId} timezone={timezone} onApplySlot={handleApplySlot} participants={[...participants, ...pendingParticipants]}/>
-        )}
-
-        
-        {(timeMode === "manual" || (!isGroup && !id)) && (
+        {timeMode === "manual" && (
           <div className="stack">
             <div className="segmented" style={{ maxWidth:280 }}>
-              <button type="button" className={`segmentedBtn ${calendarType==="gregorian"?"segmentedBtnActive":""}`} onClick={()=>setCalendarType("gregorian")} disabled={!canEdit}>Gregorian</button>
-              <button type="button" className={`segmentedBtn ${calendarType==="ethiopian"?"segmentedBtnActive":""}`} onClick={()=>setCalendarType("ethiopian")} disabled={!canEdit}>Ethiopian</button>
+              <button type="button" className={`segmentedBtn ${calendarType==="gregorian"?"segmentedBtnActive":""}`} onClick={()=>handleCalendarTabSwitch("gregorian")} disabled={!canEdit}>Gregorian</button>
+              <button type="button" className={`segmentedBtn ${calendarType==="ethiopian"?"segmentedBtnActive":""}`} onClick={()=>handleCalendarTabSwitch("ethiopian")} disabled={!canEdit}>Ethiopian</button>
             </div>
 
             {calendarType==="gregorian" && (
-              <div className="formGrid">
-                <label className="label">Start time *<input className="input" type="datetime-local" value={gDateTime} onChange={async e=>{setGDateTime(e.target.value);await syncEthiopianFromGregorian(e.target.value);}} disabled={!canEdit}/></label>
-                <label className="label">End time<input className="input" type="datetime-local" value={gEndDateTime} onChange={e=>setGEndDateTime(e.target.value)} disabled={!canEdit}/></label>
-              </div>
-            )}
-
-            {calendarType==="ethiopian" && (
               <>
-                <div className="formGrid3">
-                  <label className="label">Year<input className="input" value={eYear} onChange={async e=>{setEYear(e.target.value);await syncGregorianFromEthiopian(e.target.value,eMonth,eDay,gDateTime?.slice(11,16)||"09:00");}} placeholder="2018" disabled={!canEdit}/></label>
-                  <label className="label">Month<input className="input" value={eMonth} onChange={async e=>{setEMonth(e.target.value);await syncGregorianFromEthiopian(eYear,e.target.value,eDay,gDateTime?.slice(11,16)||"09:00");}} placeholder="4" disabled={!canEdit}/></label>
-                  <label className="label">Day<input className="input" value={eDay} onChange={async e=>{setEDay(e.target.value);await syncGregorianFromEthiopian(eYear,eMonth,e.target.value,gDateTime?.slice(11,16)||"09:00");}} placeholder="29" disabled={!canEdit}/></label>
-                </div>
                 <div className="formGrid">
-                  <label className="label">Start time<input className="input" type="time" value={gDateTime?gDateTime.slice(11,16):"09:00"} onChange={async e=>{await syncGregorianFromEthiopian(eYear,eMonth,eDay,e.target.value||"09:00");}} disabled={!canEdit}/></label>
-                  <label className="label">End time<input className="input" type="time" value={gEndDateTime?gEndDateTime.slice(11,16):""} onChange={e=>{if(!gDateTime)return;const dp=gDateTime.slice(0,10);setGEndDateTime(e.target.value?`${dp}T${e.target.value}`:"");}} disabled={!canEdit}/></label>
+                  <label className="label">Start time *
+                    <input className="input" type="datetime-local"
+                      key={gDateTimeExtKey}
+                      defaultValue={gDateTime}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setGDateTime(val);
+                        clearTimeout(gSyncDebounce.current);
+                        gSyncDebounce.current = setTimeout(() => syncEthiopianFromGregorian(val), 150);
+                      }}
+                      disabled={!canEdit}/>
+                  </label>
+                  <label className="label">End time
+                    <input className="input" type="datetime-local"
+                      key={gEndDateTimeExtKey}
+                      defaultValue={gEndDateTime}
+                      onChange={e=>setGEndDateTime(e.target.value)}
+                      disabled={!canEdit}/>
+                  </label>
                 </div>
-                {gDateTime && <div className="alert alertInfo" style={{fontSize:"0.85rem"}}>Gregorian: <strong>{gDateTime.replace("T"," ")}</strong>{gEndDateTime&&<> → <strong>{gEndDateTime.replace("T"," ")}</strong></>}</div>}
+                {gDateTime && eYear && eMonth && eDay && (() => {
+                  const tz = timezone || "Europe/Rome";
+
+                  const eatStart = convertTimezone(gDateTime, tz, "Africa/Addis_Ababa");
+                  const eatEnd   = gEndDateTime ? convertTimezone(gEndDateTime, tz, "Africa/Addis_Ababa") : null;
+                  return (
+                    <div className="alert alertInfo" style={{fontSize:"0.85rem"}}>
+                      Ethiopian: <strong>{String(eYear).padStart(4,"0")}-{pad2(Number(eMonth))}-{pad2(Number(eDay))}</strong>
+                      {" · "}{to12h(eatStart.slice(11,16))}{eatEnd ? ` – ${to12h(eatEnd.slice(11,16))}` : ""}
+                    </div>
+                  );
+                })()}
               </>
             )}
+
+            {calendarType==="ethiopian" && (() => {
+              const tz = timezone || "Europe/Rome";
+              const eatStartStr = gDateTime ? convertTimezone(gDateTime, tz, "Africa/Addis_Ababa") : "";
+              const eatEndStr   = gEndDateTime ? convertTimezone(gEndDateTime, tz, "Africa/Addis_Ababa") : "";
+              const eDateTime = (eYear && eMonth && eDay && eatStartStr)
+                ? `${String(eYear).padStart(4,"0")}-${pad2(Number(eMonth))}-${pad2(Number(eDay))}T${eatStartStr.slice(11,16)}`
+                : "";
+              const eEndDateTime = (eYear && eMonth && eDay && eatEndStr)
+                ? `${String(eYear).padStart(4,"0")}-${pad2(Number(eMonth))}-${pad2(Number(eDay))}T${eatEndStr.slice(11,16)}`
+                : "";
+              return (
+                <>
+                  <div className="formGrid">
+                    <label className="label">Start time *
+                      <input className="input" type="datetime-local"
+                        key={eDateTimeExtKey}
+                        defaultValue={eDateTime}
+                        onChange={e => {
+                          const val = e.target.value;
+                          clearTimeout(eSyncDebounce.current);
+                          eSyncDebounce.current = setTimeout(() => handleEDateTimeChange(val), 150);
+                        }}
+                        disabled={!canEdit}/>
+                    </label>
+                    <label className="label">End time
+                      <input className="input" type="datetime-local"
+                        key={eEndDateTimeExtKey}
+                        defaultValue={eEndDateTime}
+                        onChange={e => {
+                          const val = e.target.value;
+                          clearTimeout(eEndSyncDebounce.current);
+                          eEndSyncDebounce.current = setTimeout(() => handleEEndDateTimeChange(val), 150);
+                        }}
+                        disabled={!canEdit}/>
+                    </label>
+                  </div>
+                  {gDateTime && (() => {
+                    const [y, mo, d] = gDateTime.slice(0,10).split("-");
+                    return (
+                      <div className="alert alertInfo" style={{fontSize:"0.85rem"}}>
+                        Gregorian: <strong>{mo}/{d}/{y}</strong>
+                        {" · "}{to12h(gDateTime.slice(11,16))}{gEndDateTime ? ` – ${to12h(gEndDateTime.slice(11,16))}` : ""}
+                      </div>
+                    );
+                  })()}
+                </>
+              );
+            })()}
           </div>
         )}
 
-        
         <div className="formDivider" style={{ margin:"20px 0 16px" }}/>
         <label className="label" style={{marginBottom:8}}>Timezone<input className="input" value={timezone} onChange={e=>setTimezone(e.target.value)} placeholder="Europe/Rome" disabled={!canEdit}/></label>
 
-        
         <div style={{ marginTop:4 }}>
           <div style={{ fontSize:"0.78rem", fontWeight:600, color:"var(--muted-2)", marginBottom:8 }}>Reminder</div>
           <div style={{ position:"relative", maxWidth:280 }}>
@@ -886,7 +1367,6 @@ export default function EventForm() {
             </svg>
           </div>
 
-          
           {reminderPreset==="custom" && (
             <div style={{ marginTop:14, display:"flex", flexDirection:"column", gap:8 }}>
               <label className="label" style={{marginBottom:0}}>
@@ -926,16 +1406,9 @@ export default function EventForm() {
   return (
     <div className="pageNarrow" style={{ maxWidth:720, margin:"0 auto" }}>
 
-      
       <div style={{ marginBottom:24 }}>
-        
-        {!id && (
-          <button type="button" className="btn btnGhost btnSm" style={{ marginBottom:14, display:"flex", alignItems:"center", gap:6 }} onClick={() => setEventType("selector")}>
-            <ArrowLeft/> Back
-          </button>
-        )}
         <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-          <h1 className="h1">{id ? "Manage event" : isGroup ? "New group event" : "New personal event"}</h1>
+          <h1 className="h1">{id ? "Manage event" : "Create event"}</h1>
           {id && version!==null && <span className="badge badgeAccent">v{version}</span>}
         </div>
         {id && <div style={{ marginTop:6 }}><span className={`badge ${accessRole==="owner"?"badgeAccent":accessRole==="editor"?"badgeSuccess":""}`}>{accessRole}</span></div>}
@@ -944,12 +1417,20 @@ export default function EventForm() {
       {showConflictPanel && conflictData && <ConflictPanel conflictData={conflictData} serverChanges={serverChanges} localChanges={localChanges} saving={saving} canEdit={canEdit} id={id} onReload={handleReloadLatest} onOverwrite={handleOverwrite} onViewDiff={()=>nav(`/events/${id}/diff?from=${conflictData.yourVersion}&to=${conflictData.currentVersion}`)}/>}
       {conflictMsg && !showConflictPanel && <div className="alert alertDanger" style={{marginBottom:16}}><strong>Conflict:</strong> {conflictMsg}</div>}
       {error && <div className="alert alertDanger" style={{marginBottom:16}}>{error}</div>}
-      {msg && <div className="alert alertSuccess" style={{marginBottom:16}}>{msg}</div>}
+      {msg && id && <div className="alert alertSuccess" style={{marginBottom:16}}>{msg}</div>}
 
-      <form onSubmit={handleSubmit}>
+      <form
+        onSubmit={handleSubmit}
+        onInput={()=>{ if(msg){setMsg("");setSeriesConflictMsg("");} }}
+        onClickCapture={(e)=>{
+          if(!msg) return;
+          const btn=e.target.closest("button");
+          if(btn && (btn.type==="submit" || btn.dataset.keep==="1")) return;
+          setMsg(""); setSeriesConflictMsg("");
+        }}
+      >
         <div className="stack">
 
-          
           <div className="sectionCard sectionCardPad">
             <h3 className="sectionTitle" style={{marginBottom:18}}>Event details</h3>
             <div className="stack">
@@ -958,19 +1439,12 @@ export default function EventForm() {
             </div>
           </div>
 
-          
-          {(isGroup || id) && (canManageParticipants || !id) && (
+          {(canManageParticipants || !id) && (
             <div className="sectionCard sectionCardPad">
               <div className="sectionHead" style={{ alignItems:"center" }}>
                 <div>
-                  <h3 className="sectionTitle">Who's invited?</h3>
-                  {!id && (
-                    <p className="sectionSub">
-                      Add participants first. Smart scheduling will check everyone's calendar to find the best time.
-                    </p>
-                  )}
+                  <h3 className="sectionTitle">Add participants</h3>
                 </div>
-                <span className="badge" style={{ alignSelf:"center" }}>{participants.length + pendingParticipants.length} total</span>
               </div>
               <div className="stack" style={{marginTop:14}}>
                 <div className="efShareRow">
@@ -989,13 +1463,12 @@ export default function EventForm() {
                       </svg>
                     </div>
                   </label>
-                  <div className="label"><span style={{opacity:0}}>.</span><button type="button" className="btn btnSm" onClick={addPendingParticipant}>+ Add</button></div>
+                  <div className="label"><span style={{opacity:0, fontSize:"0.85rem"}}>.</span><button type="button" className="btn btnSm" onClick={addPendingParticipant} style={{minHeight:44, height:44}}>+ Add</button></div>
                 </div>
                 {participantsError && <div className="alert alertDanger">{participantsError}</div>}
                 {shareMsg && <div className="alert alertSuccess">{shareMsg}</div>}
                 {pendingParticipants.length>0 && (
                   <div className="efPendingList">
-                    <div className="efPendingTitle">Will be added when you create the event</div>
                     {pendingParticipants.map(p=>(
                       <div key={p.email} className="efPendingRow">
                         <div className="participantAvatar" style={{width:28,height:28,fontSize:"0.72rem"}}>{p.email.charAt(0).toUpperCase()}</div>
@@ -1020,107 +1493,144 @@ export default function EventForm() {
             </div>
           )}
 
-          
           <DateTimeSection/>
 
-          
           {!id && (
-            <div className="sectionCard sectionCardPad">
-              <h3 className="sectionTitle" style={{marginBottom:18}}>Repeat <span style={{fontSize:"0.75rem",fontWeight:500,color:"var(--muted)",letterSpacing:"0.02em"}}>optional</span></h3>
-              <div className="stack">
+            showCustomPanel ? (
+              <CustomRepeatPanel
+                frequency={repeatFrequency}
+                setFrequency={setRepeatFrequency}
+                interval={repeatInterval}
+                setInterval={setRepeatInterval}
+                byday={repeatByday}
+                setByday={setRepeatByday}
+                onBack={() => setShowCustomPanel(false)}
+              />
+            ) : (
+              <div className="sectionCard sectionCardPad">
+                <div className="stack" style={{ gap: 16 }}>
 
-                
-                <div style={{ position:"relative", maxWidth:280 }}>
-                  <select
-                    className="input"
-                    value={repeatType}
-                    onChange={e => setRepeatType(e.target.value)}
-                    style={{ appearance:"none", WebkitAppearance:"none", paddingRight:36, cursor:"pointer", fontWeight:600 }}
-                  >
-                    <option value="none">Never</option>
-                    <option value="daily">Every day</option>
-                    <option value="weekly">Every week</option>
-                    <option value="custom">Custom interval…</option>
-                  </select>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-                    style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)", pointerEvents:"none", color:"var(--muted)" }}>
-                    <polyline points="6 9 12 15 18 9"/>
-                  </svg>
-                </div>
-
-                
-
-                
-                {repeatType==="custom" && (
-                  <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                    <div style={{ fontSize:"0.78rem", fontWeight:600, color:"var(--muted-2)" }}>Repeat between</div>
-                    <div className="formGrid">
-                      <label className="label">
-                        From
-                        <input className="input" type="datetime-local" value={repeatFrom} onChange={e => setRepeatFrom(e.target.value)}/>
-                      </label>
-                      <label className="label">
-                        Until
-                        <input className="input" type="datetime-local" value={repeatUntil} min={repeatFrom||undefined} onChange={e => setRepeatUntil(e.target.value)}/>
-                      </label>
+                  <label className="label">
+                    Repeat
+                    <div style={{ position: "relative" }}>
+                      <select className="input" value={repeatPreset}
+                        onChange={e => { setRepeatPreset(e.target.value); if (e.target.value === "custom") setShowCustomPanel(true); }}
+                        style={{ appearance: "none", WebkitAppearance: "none", paddingRight: 36, cursor: "pointer", fontWeight: 600 }}>
+                        {REPEAT_PRESETS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+                      </select>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                        style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: "var(--muted)" }}>
+                        <polyline points="6 9 12 15 18 9"/>
+                      </svg>
                     </div>
-                    {repeatFrom && repeatUntil && (() => {
-                      const diffMins = Math.round((new Date(repeatUntil) - new Date(repeatFrom)) / 60000);
-                      if (diffMins <= 0) return <div style={{ fontSize:"0.82rem", color:"var(--danger)" }}>⚠ Until must be after From</div>;
-                      const days = Math.floor(diffMins / 1440);
-                      const hrs = Math.floor((diffMins % 1440) / 60);
-                      const parts = [];
-                      if (days > 0) parts.push(`${days} day${days>1?"s":""}`);
-                      if (hrs > 0) parts.push(`${hrs} hr${hrs>1?"s":""}`);
-                      return <div style={{ fontSize:"0.82rem", color:"var(--accent)", fontWeight:600 }}>✓ Repeating over {parts.join(" and ")}</div>;
-                    })()}
-                  </div>
-                )}
+                  </label>
 
-                {summary && repeatType !== "custom" && (
-                  <div style={{ fontSize:"0.82rem", color:"var(--accent)", fontWeight:600 }}>✓ {summary}</div>
+                  {repeatPreset !== "never" && (
+                    <label className="label">
+                      End Repeat
+                      <div style={{ position: "relative" }}>
+                        <select className="input" value={repeatEndRepeat} onChange={e => setRepeatEndRepeat(e.target.value)}
+                          style={{ appearance: "none", WebkitAppearance: "none", paddingRight: 36, cursor: "pointer", fontWeight: 600 }}>
+                          <option value="never">Never</option>
+                          <option value="on_date">On Date</option>
+                        </select>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                          style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: "var(--muted)" }}>
+                          <polyline points="6 9 12 15 18 9"/>
+                        </svg>
+                      </div>
+                    </label>
+                  )}
+
+                  {repeatPreset !== "never" && repeatEndRepeat === "on_date" && (
+                    <>
+                      <label className="label">
+                        End Date
+                        <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 14px", fontSize: "0.9rem", fontWeight: 600, color: "var(--text)" }}>
+                          {repeatUntilDate
+                            ? new Date(repeatUntilDate + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                            : "Select a date below"}
+                        </div>
+                      </label>
+                      <InlineCalendar
+                        value={repeatUntilDate}
+                        onChange={setRepeatUntilDate}
+                        minDate={gDateTime ? gDateTime.slice(0, 10) : undefined}
+                      />
+                    </>
+                  )}
+
+                </div>
+              </div>
+            )
+          )}
+
+          {id && (
+            <CollapsibleSection title="Google Calendar" defaultOpen={false}>
+              <div className="stack">
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+                  <span style={{fontSize:"0.85rem",color:"var(--muted)"}}>Export this event to your Google Calendar.</span>
+                  <span className={`badge ${googleStatus?.connected?"badgeSuccess":""}`}>{googleStatus?.connected?"Connected":"Not connected"}</span>
+                </div>
+                {googleStatus?.connected ? (
+                  <>
+                    <div className="alert alertSuccess" style={{fontSize:"0.85rem"}}>Connected{googleStatus.google_email?<> as <strong>{googleStatus.google_email}</strong></>:null}</div>
+                    {googleMsg&&<div className="alert alertSuccess">{googleMsg}</div>}
+                    {googleError&&<div className="alert alertDanger">{googleError}</div>}
+                    <div className="formActions">
+                      <button type="button" className="btn btnPrimary btnSm" onClick={handleExportToGoogle} disabled={googleLoading}>{googleLoading?"Exporting…":"Export to Google"}</button>
+                      <button type="button" className="btn btnSm" onClick={handleGoogleConnect} disabled={googleLoading}>Reconnect</button>
+                      <button type="button" className="btn btnSm btnDanger" onClick={handleGoogleDisconnect} disabled={googleLoading}>Disconnect</button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    {googleError&&<div className="alert alertDanger">{googleError}</div>}
+                    <button type="button" className="btn btnSm" onClick={handleGoogleConnect} disabled={googleLoading}><GoogleIcon/> {googleLoading?"Connecting…":"Connect Google Calendar"}</button>
+                  </>
                 )}
               </div>
+            </CollapsibleSection>
+          )}
+
+          {msg && !id && !draftEventId && (
+            <div className="alert alertSuccess" style={{marginBottom:8}}>{msg}</div>
+          )}
+          {seriesConflictMsg && (
+            <div style={{
+              background:"rgba(251,146,60,0.08)",
+              border:"1px solid rgba(251,146,60,0.25)",
+              borderRadius:8,
+              padding:"10px 14px",
+              marginBottom:8,
+              fontSize:"0.88rem",
+              color:"var(--text)",
+              display:"flex",
+              alignItems:"flex-start",
+              gap:8,
+            }}>
+              <span style={{color:"#fb923c",fontWeight:700,flexShrink:0}}>⚠</span>
+              <span>{seriesConflictMsg}</span>
             </div>
           )}
 
-          
-          <CollapsibleSection title="Google Calendar" defaultOpen={false}>
-            <div className="stack">
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
-                <span style={{fontSize:"0.85rem",color:"var(--muted)"}}>Export this event to your Google Calendar.</span>
-                <span className={`badge ${googleStatus?.connected?"badgeSuccess":""}`}>{googleStatus?.connected?"Connected":"Not connected"}</span>
-              </div>
-              {googleStatus?.connected ? (
-                <>
-                  <div className="alert alertSuccess" style={{fontSize:"0.85rem"}}>Connected{googleStatus.google_email?<> as <strong>{googleStatus.google_email}</strong></>:null}</div>
-                  {googleMsg&&<div className="alert alertSuccess">{googleMsg}</div>}
-                  {googleError&&<div className="alert alertDanger">{googleError}</div>}
-                  <div className="formActions">
-                    <button type="button" className="btn btnPrimary btnSm" onClick={handleExportToGoogle} disabled={googleLoading}>{googleLoading?"Exporting…":"Export to Google"}</button>
-                    <button type="button" className="btn btnSm" onClick={handleGoogleConnect} disabled={googleLoading}>Reconnect</button>
-                    <button type="button" className="btn btnSm btnDanger" onClick={handleGoogleDisconnect} disabled={googleLoading}>Disconnect</button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  {googleError&&<div className="alert alertDanger">{googleError}</div>}
-                  <button type="button" className="btn btnSm" onClick={handleGoogleConnect} disabled={googleLoading}><GoogleIcon/> {googleLoading?"Connecting…":"Connect Google Calendar"}</button>
-                </>
-              )}
-            </div>
-          </CollapsibleSection>
-
-          
           <div style={{display:"flex",alignItems:"center",gap:12,paddingTop:4,paddingBottom:24}}>
-            {canEdit ? (
-              <button className="btn btnPrimary" type="submit" disabled={saving}>
-                {saving ? <><span className="spinner" style={{width:14,height:14,borderTopColor:"#fff"}}/>{id?"Saving…":"Creating…"}</> : id?"Save changes":"Create event"}
+            {msg && !id && !draftEventId ? (
+              <button className="btn btnPrimary" type="button" data-keep="1" onClick={()=>nav(CALENDAR_PAGE)}>
+                Continue to Calendar →
               </button>
             ) : (
-              <button className="btn" type="button" disabled>View only</button>
+              <>
+                {canEdit ? (
+                  <button className="btn btnPrimary" type="submit" disabled={saving}>
+                    {saving ? <><span className="spinner" style={{width:14,height:14,borderTopColor:"#fff"}}/>{id?"Saving…":"Creating…"}</> : id?"Save changes":"Create event"}
+                  </button>
+                ) : (
+                  <button className="btn" type="button" disabled>View only</button>
+                )}
+                <button className="btn" type="button" onClick={()=>nav(CALENDAR_PAGE)}>Cancel</button>
+              </>
             )}
-            <button className="btn" type="button" onClick={()=>nav(CALENDAR_PAGE)}>Cancel</button>
           </div>
 
         </div>

@@ -91,7 +91,7 @@ export default function Welcome() {
 
   return (
     <div className="welcomeShell">
-      
+
       <header className="welcomeTopbar">
         <div className="welcomeTopbarLeft">
           <div className="welcomeTopbarMark">Z</div>
@@ -104,7 +104,7 @@ export default function Welcome() {
       </header>
 
       <main>
-        
+
         <section className={`wHero ${heroVisible ? "wHeroVisible" : ""}`}>
           <div className="wHeroBg" aria-hidden="true">
             <div className="wHeroOrb wHeroOrb1" />
@@ -133,7 +133,6 @@ export default function Welcome() {
           </div>
         </section>
 
-        
         <section className="wStats" ref={statsRef}>
           {STATS.map((s, i) => (
             <div
@@ -147,7 +146,6 @@ export default function Welcome() {
           ))}
         </section>
 
-        
         <section className="wFeatures" ref={featRef}>
           <div className="wFeaturesHead">
             <div className="pageEyebrow">Features</div>

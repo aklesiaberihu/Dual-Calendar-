@@ -15,6 +15,7 @@ from app.core.intervals import merge_intervals, find_gaps, choose_slots
 from app.core.ranking import rank_slots
 
 router = APIRouter(prefix="/events", tags=["scheduling"])
+schedule_router = APIRouter(prefix="/schedule", tags=["scheduling"])
 
 def get_current_user(db: Session, email: str) -> User:
     user = db.query(User).filter(User.email == email).first()
@@ -146,6 +147,12 @@ def as_utc(dt: datetime) -> datetime:
         return dt.replace(tzinfo=ZoneInfo("UTC"))
     return dt.astimezone(ZoneInfo("UTC"))
 
+def to_naive_utc(dt: datetime) -> datetime:
+    
+    if dt.tzinfo is None:
+        return dt
+    return dt.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+
 def format_dt_pair(dt: datetime, tz_name: str):
     utc_dt = as_utc(dt)
     local_dt = utc_dt.astimezone(ZoneInfo(tz_name))
@@ -161,6 +168,18 @@ def format_interval(start: datetime, end: datetime, tz_name: str):
         "start_local": as_utc(start).astimezone(ZoneInfo(tz_name)).isoformat(),
         "end_local": as_utc(end).astimezone(ZoneInfo(tz_name)).isoformat(),
     }
+
+def build_conflicts_detected(participants_info: list, busy_by_user: dict, tz_name: str) -> list:
+    result = []
+    for p in participants_info:
+        uid = p["user_id"]
+        busy = busy_by_user.get(uid, [])
+        if busy:
+            result.append({
+                "email": p["email"],
+                "busy_intervals": [format_interval(s, e, tz_name) for s, e in busy],
+            })
+    return result
 
 @router.get("/{event_id}/conflicts")
 def conflicts_for_participants(
@@ -253,26 +272,20 @@ def rank_time_slots(
     window_end_utc: datetime = Query(...),
     candidate_limit: int = Query(20, ge=1, le=100),
     max_results: int = Query(5, ge=1, le=20),
-    required_user_ids: str = Query("", description="comma-separated user ids"),
-    optional_user_ids: str = Query("", description="comma-separated user ids"),
-    prefer_earlier: bool = Query(True),
     work_start_hour: int = Query(9, ge=0, le=23),
     work_end_hour: int = Query(17, ge=1, le=24),
     display_timezone: str | None = Query(None),
     db: Session = Depends(get_db),
     email: str = Depends(get_current_user_email),
 ):
-    """
-    Constraint-based ranking:
-    - Generate candidate slots across the search window
-    - Filter by required attendees (hard constraint — if they're busy, slot is excluded)
-    - Score remaining slots by: optional conflicts + outside work hours + earlier preference
-    - Return top ranked slots
-    """
+    
     caller = get_current_user(db, email)
     event = ensure_event_access(db, caller, event_id)
 
-    if window_end_utc <= window_start_utc:
+    ws = to_naive_utc(window_start_utc)
+    we = to_naive_utc(window_end_utc)
+
+    if we <= ws:
         raise HTTPException(status_code=400, detail="window_end_utc must be after window_start_utc")
 
     tz_name = resolve_timezone(display_timezone, event)
@@ -282,39 +295,41 @@ def rank_time_slots(
     busy_by_user = {}
     for p in participants:
         uid = p["user_id"]
-        intervals = busy_intervals_for_user(db, uid, window_start_utc, window_end_utc, exclude_event_id=event_id)
+        intervals = busy_intervals_for_user(db, uid, ws, we, exclude_event_id=event_id)
         busy_by_user[uid] = merge_intervals(intervals)
         all_busy.extend(busy_by_user[uid])
 
     merged_busy = merge_intervals(all_busy)
-    gaps = find_gaps(window_start_utc, window_end_utc, merged_busy)
+    gaps = find_gaps(ws, we, merged_busy)
     candidates = choose_slots(gaps, duration_minutes=duration_minutes, limit=candidate_limit)
 
-    required = parse_ids(required_user_ids)
-    optional = parse_ids(optional_user_ids)
-
-    if not required and not optional:
-        required = {p["user_id"] for p in participants}
+    required = {p["user_id"] for p in participants}
+    optional = set()
 
     ranked = rank_slots(
         slots=candidates,
         busy_by_user=busy_by_user,
         required_users=required,
         optional_users=optional,
-        window_start=window_start_utc,
-        prefer_earlier=prefer_earlier,
         work_start_hour=work_start_hour,
         work_end_hour=work_end_hour,
+        tz_name=tz_name,
     )
 
     ranked_with_local = []
     for item in ranked[:max_results]:
+        s = item["start"]
+        e = item["end"]
+        s_utc = as_utc(s)
+        e_utc = as_utc(e)
         ranked_with_local.append({
             **item,
-            "start_utc": as_utc(item["start"]).isoformat() if isinstance(item.get("start"), datetime) else item.get("start"),
-            "end_utc": as_utc(item["end"]).isoformat() if isinstance(item.get("end"), datetime) else item.get("end"),
-            "start_local": as_utc(item["start"]).astimezone(ZoneInfo(tz_name)).isoformat() if isinstance(item.get("start"), datetime) else item.get("start"),
-            "end_local": as_utc(item["end"]).astimezone(ZoneInfo(tz_name)).isoformat() if isinstance(item.get("end"), datetime) else item.get("end"),
+            "start": s_utc.isoformat(),
+            "end": e_utc.isoformat(),
+            "start_utc": s_utc.isoformat(),
+            "end_utc": e_utc.isoformat(),
+            "start_local": s_utc.astimezone(ZoneInfo(tz_name)).isoformat(),
+            "end_local": e_utc.astimezone(ZoneInfo(tz_name)).isoformat(),
         })
 
     return {
@@ -322,15 +337,115 @@ def rank_time_slots(
         "display_timezone": tz_name,
         "participants": participants,
         "duration_minutes": duration_minutes,
-        "window_start": format_dt_pair(window_start_utc, tz_name),
-        "window_end": format_dt_pair(window_end_utc, tz_name),
+        "window_start": format_dt_pair(ws, tz_name),
+        "window_end": format_dt_pair(we, tz_name),
         "constraints": {
             "required_user_ids": sorted(list(required)),
             "optional_user_ids": sorted(list(optional)),
-            "prefer_earlier": prefer_earlier,
             "work_start_hour": work_start_hour,
             "work_end_hour": work_end_hour,
         },
         "candidate_slots": [format_interval(s, e, tz_name) for s, e in candidates],
         "ranked_slots": ranked_with_local,
+        "conflicts_detected": build_conflicts_detected(participants, busy_by_user, tz_name),
+    }
+
+@schedule_router.get("/rank")
+def rank_slots_no_event(
+    participant_emails: str = Query(""),
+    duration_minutes: int = Query(..., ge=1, le=24*60),
+    window_start_utc: datetime = Query(...),
+    window_end_utc: datetime = Query(...),
+    candidate_limit: int = Query(20, ge=1, le=100),
+    max_results: int = Query(5, ge=1, le=20),
+    work_start_hour: int = Query(9, ge=0, le=23),
+    work_end_hour: int = Query(17, ge=1, le=24),
+    display_timezone: str | None = Query(None),
+    db: Session = Depends(get_db),
+    email: str = Depends(get_current_user_email),
+):
+    
+    organizer = get_current_user(db, email)
+
+    tz_name = display_timezone or "UTC"
+    try:
+        ZoneInfo(tz_name)
+    except Exception:
+        raise HTTPException(status_code=400, detail=f"Invalid timezone: {tz_name}")
+
+    ws = to_naive_utc(window_start_utc)
+    we = to_naive_utc(window_end_utc)
+
+    if we <= ws:
+        raise HTTPException(status_code=400, detail="window_end_utc must be after window_start_utc")
+
+    emails_list = [e.strip().lower() for e in participant_emails.split(",") if e.strip()]
+
+    all_user_ids: Set[int] = {organizer.id}
+    participants_info = [{"user_id": organizer.id, "email": organizer.email, "role": "organizer"}]
+
+    for p_email in emails_list:
+        if p_email == organizer.email.lower():
+            continue
+        user = db.query(User).filter(User.email == p_email).first()
+        if user:
+            all_user_ids.add(user.id)
+            participants_info.append({"user_id": user.id, "email": user.email, "role": "participant"})
+
+    all_busy: List[Tuple[datetime, datetime]] = []
+    busy_by_user: dict = {}
+    for uid in all_user_ids:
+        intervals = busy_intervals_for_user(db, uid, ws, we, exclude_event_id=-1)
+        busy_by_user[uid] = merge_intervals(intervals)
+        all_busy.extend(busy_by_user[uid])
+
+    merged_busy = merge_intervals(all_busy)
+    gaps = find_gaps(ws, we, merged_busy)
+    candidates = choose_slots(gaps, duration_minutes=duration_minutes, limit=candidate_limit)
+
+    required = set(all_user_ids)
+    optional: Set[int] = set()
+
+    ranked = rank_slots(
+        slots=candidates,
+        busy_by_user=busy_by_user,
+        required_users=required,
+        optional_users=optional,
+        work_start_hour=work_start_hour,
+        work_end_hour=work_end_hour,
+        tz_name=tz_name,
+    )
+
+    ranked_with_local = []
+    for item in ranked[:max_results]:
+        s = item["start"]
+        e = item["end"]
+        s_utc = as_utc(s)
+        e_utc = as_utc(e)
+        ranked_with_local.append({
+            **item,
+            "start": s_utc.isoformat(),
+            "end": e_utc.isoformat(),
+            "start_utc": s_utc.isoformat(),
+            "end_utc": e_utc.isoformat(),
+            "start_local": s_utc.astimezone(ZoneInfo(tz_name)).isoformat(),
+            "end_local": e_utc.astimezone(ZoneInfo(tz_name)).isoformat(),
+        })
+
+    return {
+        "event_id": None,
+        "display_timezone": tz_name,
+        "participants": participants_info,
+        "duration_minutes": duration_minutes,
+        "window_start": format_dt_pair(ws, tz_name),
+        "window_end": format_dt_pair(we, tz_name),
+        "constraints": {
+            "required_user_ids": sorted(list(required)),
+            "optional_user_ids": [],
+            "work_start_hour": work_start_hour,
+            "work_end_hour": work_end_hour,
+        },
+        "candidate_slots": [format_interval(s, e, tz_name) for s, e in candidates],
+        "ranked_slots": ranked_with_local,
+        "conflicts_detected": build_conflicts_detected(participants_info, busy_by_user, tz_name),
     }

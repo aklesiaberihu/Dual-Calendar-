@@ -1,8 +1,6 @@
 from pydantic import BaseModel
-from typing import Optional, Literal
+from typing import Optional
 from datetime import datetime
-
-RecurrenceRule = Literal["none", "daily", "weekly"]
 
 class EventBase(BaseModel):
     title: str
@@ -13,8 +11,15 @@ class EventBase(BaseModel):
 class EventCreate(EventBase):
     start_time_local: datetime
     end_time_local: Optional[datetime] = None
-    recurrence_rule: RecurrenceRule = "none"
+
+    recurrence_rule: str = "none"
     recurrence_count: int = 1
+
+    recurrence_interval: int = 1
+    recurrence_byday: Optional[str] = None
+    recurrence_end_type: Optional[str] = None
+    recurrence_end_count: Optional[int] = None
+    recurrence_end_until: Optional[str] = None
 
 class EventUpdate(BaseModel):
     version: int
@@ -37,6 +42,10 @@ class EventOut(BaseModel):
     end_time_local: Optional[datetime] = None
     timezone: str = "UTC"
     reminder_minutes: int = 60
+    recurrence_group_id: Optional[str] = None
+    recurrence_rule: Optional[str] = None
+    recurrence_interval: Optional[int] = None
+    recurrence_byday: Optional[str] = None
 
     class Config:
         from_attributes = True

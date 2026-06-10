@@ -76,12 +76,12 @@ export default function Layout() {
 
   function logout() {
     clearToken();
-    navigate("/");
+
   }
 
   return (
     <div className="appShell">
-      
+
       <header className="topbar">
         <div className="topbarLeft">
           <div className="brandMark">Z</div>
@@ -92,12 +92,11 @@ export default function Layout() {
         </div>
       </header>
 
-      
       <div
         className="shellBody"
         style={{ gridTemplateColumns: `${expanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH}px minmax(0, 1fr)` }}
       >
-        
+
         <aside
           className="sidebar"
           style={{
@@ -110,7 +109,7 @@ export default function Layout() {
           }}
           onClick={() => !expanded && setExpanded(true)}
         >
-          
+
           {expanded && (
             <button
               className="sidebarCollapseBtn"
@@ -149,7 +148,6 @@ export default function Layout() {
             </div>
           </div>
 
-          
           <div className="sidebarFooter" style={{ borderTop: "1px solid var(--border)", paddingTop: 12 }}>
             <button
               className="sidebarSignOut"

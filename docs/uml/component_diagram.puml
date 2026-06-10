@@ -32,7 +32,12 @@ component "🖥 React Frontend\n(Vite, Port 5173)" as FE_TIER {
   component "Welcome\nComponent" as FE_WELCOME
   component "Login\nComponent" as FE_LOGIN
   component "Calendar\nComponent" as FE_CALENDAR
-  component "Event Form\nComponent" as FE_EVENT_FORM
+  component "Event Form\nComponent" as FE_EVENT_FORM {
+    component "TwoColumnWheelPicker\n(interval scroll wheel)" as FE_WHEEL
+    component "InlineCalendar\n(mini month grid)" as FE_INLINE_CAL
+    component "CustomRepeatPanel\n(frequency + byday config)" as FE_CUSTOM_REPEAT
+    component "AppleSelect\n(floating dropdown)" as FE_APPLE_SELECT
+  }
   component "Settings\nComponent" as FE_SETTINGS
   component "Date Conversion\nUI" as FE_CONVERT
   --
@@ -62,7 +67,7 @@ component "🔧 FastAPI Backend\n(Python, Port 8000)" as APP_TIER {
     interface "IProfileAPI" as IPROFILE_API
   }
 
-  component "Event Router\n(CRUD, share, participants)" as EVENT_COMP {
+  component "Event Router\n(CRUD, share, participants, series, diff)" as EVENT_COMP {
     interface "IEventAPI" as IEVENT_API
   }
 
@@ -103,8 +108,12 @@ component "🔧 FastAPI Backend\n(Python, Port 8000)" as APP_TIER {
     interface "IDiffService" as IDS
   }
 
-  component "📧 Reminder Service\n(async daemon, SMTP)" as REMINDER_COMP {
+  component "📧 Reminder Service\n(daemon thread, SMTP)" as REMINDER_COMP {
     interface "IReminderService" as IREM
+  }
+
+  component "♻️ Recurrence Service\n(expand, conflict-check)" as RECURRENCE_COMP {
+    interface "IRecurrenceService" as IRECUR
   }
 
   ' Middleware & Supporting
@@ -115,11 +124,11 @@ component "🔧 FastAPI Backend\n(Python, Port 8000)" as APP_TIER {
   AUTH_COMP ..> ISEC
   AUTH_COMP ..> VALIDATION
   PROFILE_COMP ..> ISEC
-  EVENT_COMP ..> IDCS
   EVENT_COMP ..> VALIDATION
+  EVENT_COMP ..> IRECUR
+  EVENT_COMP ..> IDS
   SCHED_COMP ..> IIS
   SCHED_COMP ..> IRS
-  SCHED_COMP ..> IDCS
   CONV_COMP ..> IDCS
   HOLIDAY_COMP ..> IDCS
   OAUTH_COMP ..> ISEC
@@ -142,7 +151,7 @@ component "🗄 SQLAlchemy ORM\n(Data Access Layer)" as ORM_TIER {
   EVENT_MODEL - IEVENT_DAO
 }
 
-database "🗃️ PostgreSQL 15\n(Port 5432)\n\n6 Tables:\n  users\n  events\n  event_participants\n  event_snapshots\n  holidays\n  reminder_logs\n\nIndexes & Constraints:\n  PK, FK (CASCADE),\n  UQ (email, event+user),\n  IX (user_id, start_time_utc,\n     resolved_date)" as DB_POSTGRES
+database "🗃️ PostgreSQL 16\n(Port 5432)\n\n6 Tables:\n  users\n  events\n  event_participants\n  event_snapshots\n  holidays\n  reminder_logs\n\nIndexes & Constraints:\n  PK, FK (CASCADE),\n  UQ (email, event+user),\n  IX (user_id, start_time_utc,\n     resolved_date,\n     recurrence_group_id)" as DB_POSTGRES
 
 ' ─────────────────────────────────────────
 '  EXTERNAL SERVICES
@@ -197,25 +206,32 @@ note right of FE_TIER
   State management: React hooks
   API calls: axios + JWT bearer token
   Vite bundler for dev/prod
+  EventForm sub-components:
+    TwoColumnWheelPicker — scroll-snap interval picker
+    InlineCalendar — mini grid for repeat end-date
+    CustomRepeatPanel — frequency/byday configuration view
+    AppleSelect — floating dark-themed dropdown overlay
 end note
 
 note right of APP_TIER
   FastAPI framework
-  Async request handlers
+  Synchronous request handlers (def, not async def)
   Pydantic validation at boundary
   Services are stateless, reusable
-  ReminderService runs in background daemon
+  ReminderService runs in background daemon thread
+  RecurrenceService: expands rules into local-time occurrences
+  (caller converts to UTC via ZoneInfo)
 end note
 
 note right of ORM_TIER
-  SQLAlchemy 2.0 with async support
+  SQLAlchemy (synchronous Session, psycopg2 driver)
   Models define schema + constraints
-  Relationships auto-load (lazy/eager)
+  Relationships auto-load (lazy by default)
   Transactions with ACID guarantees
 end note
 
 note right of DB_POSTGRES
-  PostgreSQL 15 with:
+  PostgreSQL 16 with:
   - UTC-only timestamp storage (NFR-S2)
   - Optimistic locking (version column)
   - Audit trail (snapshots table)

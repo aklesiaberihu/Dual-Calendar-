@@ -150,7 +150,7 @@ export default function EventDiff() {
 
   useEffect(() => {
     if (fromV && toV) loadDiff();
-    
+
   }, []);
 
   const changeCount = useMemo(() => Array.isArray(result?.changes) ? result.changes.length : 0, [result]);
@@ -180,7 +180,7 @@ export default function EventDiff() {
       </div>
 
       <div className="stack">
-        
+
         <div className="diffStatsRow">
           <div className="statCard">
             <div className="statLabel">Event ID</div>
@@ -200,7 +200,6 @@ export default function EventDiff() {
           </div>
         </div>
 
-        
         <div className="sectionCard sectionCardPad">
           <div className="sectionHead">
             <div>
@@ -260,10 +259,9 @@ export default function EventDiff() {
           </form>
         </div>
 
-        
         {result && (
           <div className="stack">
-            
+
             <div className="sectionCard sectionCardPad">
               <div className="sectionHead">
                 <div>
@@ -280,7 +278,6 @@ export default function EventDiff() {
               </div>
             </div>
 
-            
             {changeCount > 0 ? (
               <div className="stack">
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>

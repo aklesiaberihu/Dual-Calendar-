@@ -27,21 +27,26 @@ CREATE INDEX IF NOT EXISTS ix_users_google_sub ON users (google_sub);
 -- ─────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS events (
-  id               SERIAL PRIMARY KEY,
-  user_id          INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  version          INTEGER NOT NULL DEFAULT 1,
-  title            VARCHAR(255) NOT NULL,
-  description      TEXT,
-  start_time_utc   TIMESTAMP NOT NULL,
-  end_time_utc     TIMESTAMP,
-  timezone         VARCHAR(64)  DEFAULT 'UTC',
-  reminder_minutes INTEGER      DEFAULT 60,
-  created_at       TIMESTAMP DEFAULT NOW(),
-  updated_at       TIMESTAMP DEFAULT NOW()
+  id                   SERIAL PRIMARY KEY,
+  user_id              INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  version              INTEGER NOT NULL DEFAULT 1,
+  title                VARCHAR(255) NOT NULL,
+  description          TEXT,
+  start_time_utc       TIMESTAMP NOT NULL,
+  end_time_utc         TIMESTAMP,
+  timezone             VARCHAR(64)  DEFAULT 'UTC',
+  reminder_minutes     INTEGER      DEFAULT 60,
+  recurrence_group_id  VARCHAR(36),
+  recurrence_rule      VARCHAR(16),
+  recurrence_interval  INTEGER,
+  recurrence_byday     VARCHAR(64),
+  created_at           TIMESTAMP DEFAULT NOW(),
+  updated_at           TIMESTAMP DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS ix_events_user_id       ON events (user_id);
-CREATE INDEX IF NOT EXISTS ix_events_start_time_utc ON events (start_time_utc);
+CREATE INDEX IF NOT EXISTS ix_events_user_id              ON events (user_id);
+CREATE INDEX IF NOT EXISTS ix_events_start_time_utc       ON events (start_time_utc);
+CREATE INDEX IF NOT EXISTS ix_events_recurrence_group_id  ON events (recurrence_group_id);
 
 -- ─────────────────────────────────────────────────────────────────
 

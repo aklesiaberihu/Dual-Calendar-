@@ -4,19 +4,13 @@ from typing import List, Tuple
 Interval = Tuple[datetime, datetime]
 
 def normalize(intervals: List[Interval]) -> List[Interval]:
-    """
-    Remove invalid intervals and sort.
-    """
+    
     cleaned = [(s, e) for (s, e) in intervals if s is not None and e is not None and e > s]
     cleaned.sort(key=lambda x: x[0])
     return cleaned
 
 def merge_intervals(intervals: List[Interval]) -> List[Interval]:
-    """
-    Merge overlapping or touching intervals.
-    Example: [10:00-11:00] + [10:30-12:00] => [10:00-12:00]
-             [10:00-11:00] + [11:00-11:30] => [10:00-11:30]
-    """
+    
     intervals = normalize(intervals)
     if not intervals:
         return []
@@ -31,9 +25,7 @@ def merge_intervals(intervals: List[Interval]) -> List[Interval]:
     return merged
 
 def find_gaps(window_start: datetime, window_end: datetime, busy: List[Interval]) -> List[Interval]:
-    """
-    Given a window and merged busy intervals, return free gaps inside the window.
-    """
+    
     busy = merge_intervals(busy)
 
     gaps: List[Interval] = []
@@ -58,10 +50,7 @@ def find_gaps(window_start: datetime, window_end: datetime, busy: List[Interval]
     return gaps
 
 def choose_slots(gaps: List[Interval], duration_minutes: int, limit: int) -> List[Interval]:
-    """
-    From gaps, generate earliest non-overlapping slots of the given duration,
-    up to the requested limit.
-    """
+    
     duration = timedelta(minutes=duration_minutes)
     slots: List[Interval] = []
 

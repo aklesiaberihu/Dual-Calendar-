@@ -1,12 +1,14 @@
+import uuid
+from datetime import date, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_
-from datetime import timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from app.db.session import get_db
 from app.core.auth import get_current_user_email
+from app.core.recurrence import expand_occurrences, detect_series_conflicts
 from app.models.user import User
 from app.models.event import Event
 from app.models.event_snapshot import EventSnapshot
@@ -65,6 +67,10 @@ def serialize_event(event: Event):
         "end_time_local": end_local.isoformat() if end_local else None,
         "timezone": event.timezone,
         "reminder_minutes": event.reminder_minutes,
+        "recurrence_group_id": event.recurrence_group_id,
+        "recurrence_rule": event.recurrence_rule,
+        "recurrence_interval": event.recurrence_interval,
+        "recurrence_byday": event.recurrence_byday,
     }
 
 def get_event_with_access(db: Session, user: User, event_id: int):
@@ -93,13 +99,6 @@ def require_owner(role: str):
     if role != "owner":
         raise HTTPException(status_code=403, detail="Only the owner can perform this action")
 
-def recurrence_step(rule: str):
-    if rule == "daily":
-        return timedelta(days=1)
-    if rule == "weekly":
-        return timedelta(weeks=1)
-    return None
-
 def local_to_utc(local_dt, timezone_str: str):
     try:
         tz = ZoneInfo(timezone_str or "UTC")
@@ -117,34 +116,88 @@ def create_event(
 ):
     user = get_current_user(db, email)
 
-    if payload.recurrence_count < 1 or payload.recurrence_count > 52:
-        raise HTTPException(status_code=400, detail="recurrence_count must be between 1 and 52")
-
     if payload.start_time_local is None:
         raise HTTPException(status_code=400, detail="start_time_local is required")
 
     if payload.end_time_local is not None and payload.end_time_local <= payload.start_time_local:
         raise HTTPException(status_code=400, detail="end_time_local must be after start_time_local")
 
-    step = recurrence_step(payload.recurrence_rule)
+    duration = (
+        payload.end_time_local - payload.start_time_local
+        if payload.end_time_local is not None
+        else None
+    )
+
+    if payload.recurrence_rule == "none":
+        event = Event(
+            user_id=user.id,
+            title=payload.title,
+            description=payload.description,
+            start_time_utc=local_to_utc(payload.start_time_local, payload.timezone),
+            end_time_utc=local_to_utc(payload.end_time_local, payload.timezone) if payload.end_time_local else None,
+            timezone=payload.timezone,
+            reminder_minutes=payload.reminder_minutes,
+            version=1,
+        )
+        db.add(event)
+        db.flush()
+        snapshot_event(db, event)
+        db.commit()
+        db.refresh(event)
+        return serialize_event(event)
+
+    if payload.recurrence_end_type == "until":
+        if not payload.recurrence_end_until:
+            raise HTTPException(status_code=400, detail="recurrence_end_until required when end_type='until'")
+        try:
+            end_until = date.fromisoformat(payload.recurrence_end_until)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="recurrence_end_until must be YYYY-MM-DD")
+        if end_until < payload.start_time_local.date():
+            raise HTTPException(status_code=400, detail="recurrence_end_until must be on or after the start date")
+        end_count = 500
+    else:
+
+        end_count = payload.recurrence_end_count if payload.recurrence_end_count is not None else payload.recurrence_count
+        if end_count < 1 or end_count > 365:
+            raise HTTPException(status_code=400, detail="Occurrence count must be between 1 and 365")
+        end_until = None
+
+    byday = [d.strip() for d in payload.recurrence_byday.split(",") if d.strip()] if payload.recurrence_byday else []
+
+    valid_days = set(["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"])
+    for d in byday:
+        if d not in valid_days:
+            raise HTTPException(status_code=400, detail=f"Invalid byday value: {d}")
+
+    local_occurrences = expand_occurrences(
+        frequency=payload.recurrence_rule,
+        interval=payload.recurrence_interval or 1,
+        byday=byday,
+        end_type=payload.recurrence_end_type or "count",
+        end_count=end_count,
+        end_until=end_until,
+        base_start=payload.start_time_local,
+        duration=duration,
+    )
+
+    if not local_occurrences:
+        raise HTTPException(status_code=400, detail="Recurrence rule produced no occurrences")
+
+    utc_occurrences = [
+        (
+            local_to_utc(ls, payload.timezone),
+            local_to_utc(le, payload.timezone) if le else None,
+        )
+        for ls, le in local_occurrences
+    ]
+
+    conflicts = detect_series_conflicts(utc_occurrences, db, user.id)
+
+    group_id = str(uuid.uuid4())
     first_event = None
 
-    duration = None
-    if payload.end_time_local is not None:
-        duration = payload.end_time_local - payload.start_time_local
-
-    for i in range(payload.recurrence_count):
-        if step is None and i > 0:
-            break
-
-        local_start = payload.start_time_local + (step * i if step else timedelta(0))
-        start_utc = local_to_utc(local_start, payload.timezone)
-
-        end_utc = None
-        if duration is not None:
-            local_end = local_start + duration
-            end_utc = local_to_utc(local_end, payload.timezone)
-
+    for start_utc, end_utc in utc_occurrences:
         event = Event(
             user_id=user.id,
             title=payload.title,
@@ -154,19 +207,24 @@ def create_event(
             timezone=payload.timezone,
             reminder_minutes=payload.reminder_minutes,
             version=1,
+            recurrence_group_id=group_id,
+            recurrence_rule=payload.recurrence_rule,
+            recurrence_interval=payload.recurrence_interval or 1,
+            recurrence_byday=payload.recurrence_byday,
         )
-
         db.add(event)
         db.flush()
-
         snapshot_event(db, event)
-
         if first_event is None:
             first_event = event
 
     db.commit()
     db.refresh(first_event)
-    return serialize_event(first_event)
+
+    result = serialize_event(first_event)
+    result["recurrence_created"] = len(utc_occurrences)
+    result["recurrence_conflicts"] = conflicts
+    return result
 
 @router.get("")
 def list_events(
@@ -360,6 +418,57 @@ def list_participants(event_id: int, db: Session = Depends(get_db), email: str =
         })
 
     return result
+
+@router.get("/{event_id}/series")
+def get_event_series(event_id: int, db: Session = Depends(get_db), email: str = Depends(get_current_user_email)):
+    user = get_current_user(db, email)
+    event, _role = get_event_with_access(db, user, event_id)
+
+    if not event.recurrence_group_id:
+        return {"group_id": None, "total": 1, "events": [serialize_event(event)]}
+
+    series = (
+        db.query(Event)
+        .filter(Event.recurrence_group_id == event.recurrence_group_id)
+        .order_by(Event.start_time_utc.asc())
+        .all()
+    )
+
+    return {
+        "group_id": event.recurrence_group_id,
+        "recurrence_rule": event.recurrence_rule,
+        "recurrence_interval": event.recurrence_interval,
+        "recurrence_byday": event.recurrence_byday,
+        "total": len(series),
+        "events": [serialize_event(e) for e in series],
+    }
+
+@router.delete("/{event_id}/series")
+def delete_event_series(
+    event_id: int,
+    scope: str = Query("all", description="all | from_here"),
+    db: Session = Depends(get_db),
+    email: str = Depends(get_current_user_email),
+):
+    user = get_current_user(db, email)
+    event, role = get_event_with_access(db, user, event_id)
+    require_owner(role)
+
+    if not event.recurrence_group_id:
+        db.delete(event)
+        db.commit()
+        return {"deleted": 1, "scope": "single"}
+
+    query = db.query(Event).filter(Event.recurrence_group_id == event.recurrence_group_id)
+    if scope == "from_here":
+        query = query.filter(Event.start_time_utc >= event.start_time_utc)
+
+    to_delete = query.all()
+    count = len(to_delete)
+    for e in to_delete:
+        db.delete(e)
+    db.commit()
+    return {"deleted": count, "scope": scope}
 
 @router.delete("/{event_id}/participants/{user_id}")
 def remove_participant(event_id: int, user_id: int, db: Session = Depends(get_db), email: str = Depends(get_current_user_email)):

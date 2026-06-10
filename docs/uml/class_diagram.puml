@@ -29,6 +29,7 @@ class User {
   - google_access_token : str(2048)
   - google_refresh_token : str(2048)
   - google_token_expiry : datetime
+  - google_token_scope : str(2048)
   - google_oauth_state : str(255)
   - google_connected_at : datetime
   - created_at : datetime
@@ -54,6 +55,10 @@ class Event {
   - end_time_utc : datetime
   - timezone : str(64) = "UTC"
   - reminder_minutes : int = 60
+  - recurrence_group_id : str(36) <<IX>>
+  - recurrence_rule : str(16)
+  - recurrence_interval : int
+  - recurrence_byday : str(64)
   - created_at : datetime
   - updated_at : datetime
   --
@@ -69,6 +74,8 @@ class Event {
   + share_with(target_user_id: int, role: str) : EventParticipant
   + remove_participant(user_id: int) : bool
   + get_owner() : User
+  + get_series() : List[Event]
+  + delete_series(scope: str) : int
 }
 
 class EventParticipant {
@@ -90,11 +97,11 @@ class EventSnapshot {
   - id : int <<PK>>
   - event_id : int <<FK, IX>>
   - version : int
-  - title : str(255)
-  - description : text
+  - title : str
+  - description : str
   - start_time_utc : str
   - end_time_utc : str
-  - timezone : str(64)
+  - timezone : str
   - reminder_minutes : int
   - created_at : datetime
   --
@@ -141,12 +148,10 @@ class ReminderLog {
 ' ─────────────────────────────────────────
 
 class DateConversionService {
-  - {static} EPOCH_YEAR_DIFF : int = 8
+  - {static} ETH_MONTHS : dict
   --
   + {static} gregorian_to_ethiopian(g_date: date) : dict
   + {static} ethiopian_to_gregorian(year: int, month: int, day: int) : dict
-  + {static} gregorian_date_string_to_ethiopian(date_str: str) : dict
-  + {static} validate_ethiopian_date(year: int, month: int, day: int) : bool
 }
 
 class IntervalService {
@@ -155,58 +160,58 @@ class IntervalService {
   + {static} merge_intervals(intervals: List[Tuple]) : List[Tuple]
   + {static} find_gaps(window_start: datetime, window_end: datetime, busy: List[Tuple]) : List[Tuple]
   + {static} choose_slots(gaps: List[Tuple], duration_minutes: int, limit: int) : List[Tuple]
-  + {static} overlaps(a_start: datetime, a_end: datetime, b_start: datetime, b_end: datetime) : bool
-  - {static} _is_valid_interval(start, end) : bool
 }
 
 class RankingService {
-  - {static} DEFAULT_WORK_START : int = 9
-  - {static} DEFAULT_WORK_END : int = 17
   --
-  + {static} rank_slots(slots: List[Tuple], busy_by_user: dict, required_users: List[int], optional_users: List[int], constraints: dict) : List[dict]
-  + {static} in_work_hours(slot_start: datetime, work_start_h: int, work_end_h: int) : bool
-  + {static} conflicts_for_user(busy: List[Tuple], slot_start: datetime, slot_end: datetime) : bool
-  + {static} score_slot(slot: Tuple, busy_by_user: dict, required: List[int], optional: List[int], constraints: dict) : int
-  + {static} apply_constraint(score: int, constraint_name: str, constraint_value) : int
+  + {static} rank_slots(slots: List[Tuple], busy_by_user: dict, required_users: Set[int], optional_users: Set[int], work_start_hour: int, work_end_hour: int, tz_name: str = "UTC") : List[dict]
+  + {static} in_work_hours(slot_start: datetime, work_start_hour: int, work_end_hour: int, tz_name: str = "UTC") : bool
+  + {static} slot_conflicts_for_user(busy_intervals: List[Tuple], slot: Tuple) : bool
+  + {static} score_to_rating(score: int) : str
 }
 
 class DiffService {
   --
   + {static} diff_dicts(old: dict, new: dict) : dict
-  + {static} get_only_differences(old: dict, new: dict) : dict
 }
 
 class SecurityService {
   - {static} ALGORITHM : str = "HS256"
-  - {static} TOKEN_EXPIRE_MINUTES : int = 1440
+  - {static} ACCESS_TOKEN_EXPIRE_MINUTES : int = 60
   --
   + {static} hash_password(password: str) : str
   + {static} verify_password(plain: str, hashed: str) : bool
-  + {static} create_access_token(subject: str, expires_delta: timedelta = None) : str
-  + {static} decode_token(token: str) : dict
-  + {static} get_current_user_email(token: str) : str
+  + {static} create_access_token(subject: str) : str
+  + {static} get_current_user_email(authorization: str) : str
 }
 
 class ReminderService {
   - {static} REMINDER_POLL_SECONDS : int = 10
   - {static} logger : Logger
   --
-  + {static} send_email_reminder(to_email: str, event: Event) : bool
+  + {static} send_email_reminder(to_email: str, event: Event) : void
   + {static} reminder_already_logged(db: Session, event_id: int, recipient_email: str) : bool
   + {static} log_reminder_sent(db: Session, event_id: int, recipient_email: str) : void
   + {static} fetch_candidate_events(db: Session, now_utc: datetime) : List[Event]
   + {static} process_reminders_once() : void
   + {static} reminder_loop() : void
-  + {static} _get_smtp_settings() : dict
-  + {static} _smtp_is_configured() : bool
+  + {static} get_smtp_settings() : dict
+  + {static} smtp_is_configured() : bool
 }
 
 class SchedulingService {
   - {static} DEFAULT_DURATION_MINUTES : int = 60
   --
-  + {static} event_end_time(start: datetime, end: datetime) : datetime
-  + {static} suggest_meeting_slots(busy_intervals: List[Tuple], window_start: datetime, window_end: datetime, duration: int) : List[Tuple]
-  + {static} suggest_with_multiple_users(users_busy: dict, required_users: List[int], window_start: datetime, window_end: datetime, duration: int) : List[Tuple]
+  + {static} event_end_time(start: datetime, end: Optional[datetime]) : datetime
+  + {static} overlaps(a_start: datetime, a_end: datetime, b_start: datetime, b_end: datetime) : bool
+}
+
+class RecurrenceService {
+  - {static} MAX_OCCURRENCES : int = 500
+  - {static} WEEKDAY_MAP : dict
+  --
+  + {static} expand_occurrences(frequency: str, interval: int, byday: list, end_type: str, end_count: int, end_until: date, base_start: datetime, duration: timedelta) : List[Tuple]
+  + {static} detect_series_conflicts(occurrences: List[Tuple], db: Session, user_id: int) : List[dict]
 }
 
 ' ─────────────────────────────────────────
@@ -224,15 +229,14 @@ EventParticipant "0..*" --> "1" Event : event_id
 EventSnapshot --> "1" Event : references
 
 Holiday ......> DateConversionService : uses
-Event ......> DateConversionService : converts_times
 Event ......> SecurityService : enforces_auth
 Event ......> DiffService : version_diff
 Event ......> IntervalService : scheduling
 Event ......> SchedulingService : suggest_slots
-SchedulingService ......> IntervalService : uses
 ReminderService ......> ReminderLog : logs_sent
 ReminderService ......> Event : queries
-RankingService ......> SchedulingService : ranks_suggestions
+Event ......> RecurrenceService : expands_series
+RecurrenceService ......> Event : creates_occurrences
 
 note right of User
   Authentication entry point
@@ -255,7 +259,7 @@ note right of EventParticipant
 end note
 
 note right of ReminderService
-  Async background service
+  Background daemon thread service
   Polls every 10s for due reminders
   Sends via SMTP, logs sent status
   Reliability: uses proper logging module
@@ -264,8 +268,20 @@ end note
 note right of DateConversionService
   Pure algorithmic conversion
   No I/O, testable in isolation
-  Used in multiple callsites
-  (event serialization, scheduling, UI)
+  Used by: conversion router (/convert)
+  and holiday router (Ethiopian holidays)
+  UTC↔local is ZoneInfo, not this service
+end note
+
+note right of RecurrenceService
+  Expands a recurrence rule into
+  concrete (start, end) datetime pairs.
+  Works in local time; caller converts to UTC.
+  Capped at MAX_OCCURRENCES=500.
+  Supports: daily / weekly / monthly.
+  detect_series_conflicts() checks for
+  overlap with pre-existing events BEFORE
+  any DB insert (no rollback needed).
 end note
 
 @enduml

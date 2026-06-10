@@ -15,7 +15,7 @@ database    "PostgreSQL"      as DB
 == Organiser Opens Smart Scheduling Panel ==
 
 O -> FE : Open event id=42\n(has 3 participants)\nSet window 09:00–17:00\nDuration: 60 min
-FE -> API : GET /events/42/rank?\nduration_minutes=60\n&window_start_utc=...\n&window_end_utc=...\n&required_user_ids=1\n&optional_user_ids=2,3\n&work_start_hour=9\n&work_end_hour=17
+FE -> API : GET /events/42/rank?\nduration_minutes=60\n&window_start_utc=...\n&window_end_utc=...\n&work_start_hour=9\n&work_end_hour=17
 
 == Collect Participant Busy Times ==
 
@@ -41,20 +41,20 @@ IS --> API : gaps: [(10:00,11:30),\n(13:00,15:00),\n(16:00,17:00)]
 == Generate Candidate Slots ==
 
 API -> IS : choose_slots(\ngaps, duration=60,\nlimit=20)
-IS --> API : candidates: [(10:00,11:00),\n(10:30,11:30),\n(13:00,14:00),\n(13:30,14:30),\n(14:00,15:00),\n(16:00,17:00)]
+IS --> API : candidates: [(10:00,11:00),\n(13:00,14:00),\n(14:00,15:00),\n(16:00,17:00)]
 
 == Rank Candidates ==
 
-API -> RS : rank_slots(\nslots=candidates,\nbusy_by_user={1:[...],2:[...],3:[...]},\nrequired_users={1},\noptional_users={2,3},\nwindow_start=09:00,\nprefer_earlier=True,\nwork_start_hour=9, work_end_hour=17)
+API -> RS : rank_slots(\nslots=candidates,\nbusy_by_user={1:[...],2:[...],3:[...]},\nrequired_users={1,2,3},\noptional_users={},\nwork_start_hour=9, work_end_hour=17)
 
 loop for each candidate slot
-  RS -> RS : Check required users\n(exclude if any conflict)
-  RS -> RS : Check optional users\n(+100 penalty per conflict)
-  RS -> RS : Check work hours\n(+30 penalty if outside)
-  RS -> RS : Compute earliness penalty\n(minutes_from_start // 10)
+  RS -> RS : Check required users\n(HARD: exclude slot if any conflict)
+  RS -> RS : Check optional users\n(SOFT: +100 per conflict)
+  RS -> RS : Check work hours\n(SOFT: +50 if outside 09:00–17:00)
+  RS -> RS : score_to_rating(score)\n(⭐⭐⭐⭐⭐ IDEAL / ⭐⭐⭐⭐ EXCELLENT / ...)
 end
 
-RS --> API : ranked: [\n{start:"10:00", score:0,\nreasons:["ideal slot"]},\n{start:"13:00", score:10,\nreasons:["earliness"]},\n{start:"13:30", score:11, ...},\n{start:"16:00", score:130,\nreasons:["outside work hours",\n"optional user busy"]}\n]
+RS --> API : ranked: [\n{start:"10:00", score:0,\nrating:"⭐⭐⭐⭐⭐ IDEAL",\nreasons:["Everyone free, within work hours"]},\n{start:"13:00", score:0, rating:"⭐⭐⭐⭐⭐ IDEAL",\nreasons:["Everyone free, within work hours"]},\n{start:"16:00", score:0,\nrating:"⭐⭐⭐⭐⭐ IDEAL",\nreasons:["Everyone free, within work hours"]}\n]
 
 == Return Results ==
 

@@ -1,76 +1,97 @@
+import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Set
+from zoneinfo import ZoneInfo
+
+logger = logging.getLogger(__name__)
 
 Interval = Tuple[datetime, datetime]
 
-def in_work_hours(slot_start: datetime, work_start_hour: int, work_end_hour: int) -> bool:
-    """
-    Work hours check in UTC (simple version for student project).
-    Example: 9-17 means 09:00 <= start < 17:00.
-    """
-    h = slot_start.hour
+def in_work_hours(slot_start: datetime, work_start_hour: int, work_end_hour: int, tz_name: str = "UTC") -> bool:
+    
+    if tz_name and tz_name != "UTC":
+        local = slot_start.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo(tz_name))
+        h = local.hour
+    else:
+        h = slot_start.hour
     return work_start_hour <= h < work_end_hour
 
 def slot_conflicts_for_user(busy_intervals: List[Interval], slot: Interval) -> bool:
-    """
-    True if slot overlaps with any busy interval.
-    busy intervals must be merged already if possible (but works regardless).
-    """
+    
     s0, e0 = slot
     for s, e in busy_intervals:
         if s0 < e and s < e0:
             return True
     return False
 
+def score_to_rating(score: int) -> str:
+    
+    if score <= 50:
+        return "⭐⭐⭐⭐⭐ IDEAL"
+    elif score <= 150:
+        return "⭐⭐⭐⭐ EXCELLENT"
+    elif score <= 250:
+        return "⭐⭐⭐ GOOD"
+    elif score <= 350:
+        return "⭐⭐ FAIR"
+    else:
+        return "⭐ POOR"
+
 def rank_slots(
     slots: List[Interval],
     busy_by_user: Dict[int, List[Interval]],
     required_users: Set[int],
     optional_users: Set[int],
-    window_start: datetime,
-    prefer_earlier: bool,
     work_start_hour: int,
     work_end_hour: int,
+    tz_name: str = "UTC",
 ) -> List[dict]:
-    """
-    Returns ranked list of dicts:
-    {start, end, score, reasons}
-    Lower score = better.
-    """
+    
+    logger.debug("Ranking slots: required_users=%s, optional_users=%s", required_users, optional_users)
+    logger.debug("busy_by_user keys: %s", list(busy_by_user.keys()))
+
     ranked = []
 
     for slot in slots:
         s, e = slot
         reasons = []
         score = 0
+        optional_conflicts = 0
 
         invalid = False
         for uid in required_users:
-            if slot_conflicts_for_user(busy_by_user.get(uid, []), slot):
+            busy_intervals = busy_by_user.get(uid, [])
+            if slot_conflicts_for_user(busy_intervals, slot):
+                logger.debug(f"EXCLUDED: Slot {s}-{e}: Required user {uid} is busy")
                 invalid = True
-                reasons.append(f"required user {uid} is busy")
+                break
+
         if invalid:
             continue
 
         for uid in optional_users:
             if slot_conflicts_for_user(busy_by_user.get(uid, []), slot):
+                optional_conflicts += 1
                 score += 100
-                reasons.append(f"optional user {uid} is busy (+100)")
 
-        if not in_work_hours(s, work_start_hour, work_end_hour):
-            score += 30
-            reasons.append(f"outside work hours (+30)")
+        if optional_conflicts > 0:
+            reasons.append(f"{optional_conflicts} optional participant(s) have conflicts")
 
-        if prefer_earlier:
-            minutes_from_start = int((s - window_start).total_seconds() // 60)
-            score += max(0, minutes_from_start // 10)
-            reasons.append(f"earlier preference penalty: +{max(0, minutes_from_start // 10)}")
+        if not in_work_hours(s, work_start_hour, work_end_hour, tz_name):
+            score += 50
+            reasons.append("Outside standard work hours (9-17)")
+
+        if not reasons:
+            reasons = ["Everyone free, within work hours"]
+
+        ranking = score_to_rating(score)
 
         ranked.append({
-            "start": s.isoformat(),
-            "end": e.isoformat(),
+            "start": s,
+            "end": e,
             "score": score,
-            "reasons": reasons if reasons else ["ideal slot (no penalties)"]
+            "rating": ranking,
+            "reasons": reasons
         })
 
     ranked.sort(key=lambda x: x["score"])

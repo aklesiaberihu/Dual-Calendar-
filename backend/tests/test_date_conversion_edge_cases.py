@@ -1,8 +1,4 @@
-"""
-Edge-case tests for the Ethiopian–Gregorian conversion engine.
-Covers: New Year boundary, Pagume (13th month), leap-year Pagume length,
-multiple round-trips, and year-boundary dates.
-"""
+
 import pytest
 from datetime import date
 from app.core.date_conversion import gregorian_to_ethiopian, ethiopian_to_gregorian
@@ -75,7 +71,7 @@ def test_ethiopian_first_day_of_year_round_trips():
     assert back["day"] == 1
 
 def test_all_13_month_names_reachable():
-    """Verify all 13 Ethiopian month names are reachable via conversion."""
+    
     seen_months = set()
     start = date(2024, 9, 11)
     from datetime import timedelta

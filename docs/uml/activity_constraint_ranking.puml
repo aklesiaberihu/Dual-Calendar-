@@ -14,14 +14,14 @@ skinparam ActivityEndColor #E74C3C
 
 start
 
-:Input:\n• candidate_slots: list of (start, end)\n• busy_by_user: {user_id → [(start,end), ...]}\n• required_users: set of user_ids\n• optional_users: set of user_ids\n• window_start: datetime\n• work_start_hour, work_end_hour: int\n• prefer_earlier: bool;
+:Input:\n• candidate_slots: list of (start, end)\n• busy_by_user: {user_id → [(start,end), ...]}\n• required_users: set of user_ids\n• optional_users: set of user_ids\n• work_start_hour, work_end_hour: int\n• tz_name: str = "UTC";
 
 :ranked = [];
 
 repeat
   :Take next candidate slot S\n(start, end);
 
-  :penalty = 0;
+  :score = 0;
   :reasons = [];
 
   ' ── Required users ─────────────────────────────────────────────────────
@@ -45,34 +45,29 @@ repeat
     repeat
       :busy_intervals = busy_by_user[O];
       if (slot_conflicts_for_user(busy_intervals, S)?) then (conflict)
-        :penalty += 100;
-        :reasons.append("optional user busy");
+        :score += 100;
+        :reasons.append("N optional participant(s) have conflicts");
       else (free)
       endif
     repeat while (more optional users?)
 
     ' ── Work hours ───────────────────────────────────────────────────────
-    if (NOT in_work_hours(S.start,\nwork_start_hour, work_end_hour)?) then (outside)
-      :penalty += 30;
-      :reasons.append("outside work hours");
+    if (NOT in_work_hours(S.start,\nwork_start_hour, work_end_hour, tz_name)?) then (outside)
+      :score += 50;
+      :reasons.append("Outside standard work hours (9-17)");
+      note right: Soft constraint:\n+50 penalty if slot start\nis outside work hours
     else (inside)
-    endif
-
-    ' ── Earliness ─────────────────────────────────────────────────────────
-    if (prefer_earlier == True?) then (yes)
-      :minutes_from_start =\n(S.start - window_start).total_seconds() / 60;
-      :penalty += int(minutes_from_start / 10);
-      note right: Slots earlier in the\nwindow score lower (better)
-    else (no)
     endif
 
     ' ── Append result ────────────────────────────────────────────────────
     if (reasons is empty?) then (yes)
-      :reasons = ["ideal slot"];
+      :reasons = ["Everyone free, within work hours"];
     else (no)
     endif
 
-    :ranked.append({\n  start: S.start,\n  end: S.end,\n  score: penalty,\n  reasons: reasons\n});
+    :rated = score_to_rating(score)\n(≤50→IDEAL, ≤150→EXCELLENT,\n≤250→GOOD, ≤350→FAIR, else→POOR);
+
+    :ranked.append({\n  start: S.start,\n  end: S.end,\n  score: score,\n  rating: rated,\n  reasons: reasons\n});
 
   endif
 
@@ -80,7 +75,8 @@ repeat while (more candidate slots?)
 
 :Sort ranked by score ascending\n(lower score = better);
 
-:Return top-N ranked slots\nto API caller;
+:Return all ranked slots\n(sorted by score ascending);
+note right: rank_slots() returns ALL ranked slots;\ncaller (router) slices to max_results
 stop
 
 @enduml

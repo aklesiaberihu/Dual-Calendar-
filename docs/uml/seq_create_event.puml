@@ -9,23 +9,42 @@ actor       "Owner"          as O
 actor       "Participant"     as P
 participant "React Frontend"  as FE
 participant "FastAPI /events" as EV
-participant "DateConversion"  as DC
 database    "PostgreSQL"      as DB
 
 == Create Event ==
 
-O -> FE : Fill event form\n(title, start/end, timezone, reminder)
+O -> FE : Fill event form\n(title, start/end, timezone, reminder,\nrepeat preset, end-repeat, recurrence fields)
+note right of FE
+  EventForm maps UI state → payload:
+    recurrence_rule:     "none" | "daily" | "weekly" | "monthly"
+    recurrence_interval: int (1, 2, …)   — "every_year" maps to monthly/12
+    recurrence_end_type: "count" | "until"
+    recurrence_end_count: 365  (end repeat = Never; backend cap is 1-365)
+    recurrence_end_until: "YYYY-MM-DD"  (end repeat = On Date)
+    recurrence_byday:    "MON,WED,FRI"  (weekly only)
+  Preset "every_2_weeks" → rule="weekly", interval=2
+  Custom panel uses TwoColumnWheelPicker + day checkboxes (daily/weekly/monthly only)
+end note
 FE -> EV : POST /events\nAuthorization: Bearer <token>
 EV -> EV : get_current_user (from JWT)
-EV -> DC : convert local times → UTC
-DC --> EV : start_time_utc, end_time_utc
-EV -> DB : INSERT INTO events\n(user_id, version=1, title, start_time_utc, ...)
-DB --> EV : Event row (id=42)
-EV -> DB : INSERT INTO event_snapshots\n(event_id=42, version=1, ...)
-note right : Snapshot saved for\nversion history / diff
-DB --> EV : Snapshot row
-EV --> FE : 201 {id, title, version=1, ...}
-FE --> O : Event displayed on calendar
+note over EV : local_to_utc() converts start/end\nto UTC via ZoneInfo internally\n(not DateConversionService — that is\nfor Ethiopian↔Gregorian calendar only)
+alt recurrence_rule == "none"
+  EV -> DB : INSERT INTO events\n(user_id, version=1, title, start_time_utc, ...)
+  DB --> EV : Event row (id=42)
+  EV -> DB : INSERT INTO event_snapshots\n(event_id=42, version=1, ...)
+  note right : Snapshot saved for\nversion history / diff
+  DB --> EV : Snapshot row
+  EV --> FE : 200 {id, title, version=1, ...}
+else recurrence_rule != "none"
+  EV -> EV : RecurrenceService.expand_occurrences()\nGenerates (start_local, end_local) tuples
+  EV -> EV : detect_series_conflicts(utc_occurrences, db, user_id)\nPre-insert conflict check — no rollback risk
+  loop for each occurrence
+    EV -> DB : INSERT INTO events\n(recurrence_group_id=UUID, rule, interval, byday, ...)
+    DB --> EV : Event row
+  end
+  EV --> FE : 200 {id, recurrence_created: N, recurrence_conflicts: [...]}
+end
+FE --> O : Event(s) displayed on calendar
 
 == Share Event ==
 
@@ -35,7 +54,7 @@ EV -> DB : SELECT users WHERE email="bob@example.com"
 DB --> EV : User row (id=7)
 EV -> DB : INSERT INTO event_participants\n(event_id=42, user_id=7, role="editor")
 DB --> EV : Participant row
-EV --> FE : 200 {shared: true, user_id: 7, role: "editor"}
+EV --> FE : 200 {shared: true, event_id: 42, user_id: 7, role: "editor"}
 FE --> O : Participant badge shown
 
 == Participant Views Shared Event ==
@@ -44,7 +63,7 @@ P -> FE : Login as bob@example.com
 FE -> EV : GET /events?ownership=shared
 EV -> DB : SELECT events JOIN event_participants\nWHERE user_id=7
 DB --> EV : [Event id=42, ...]
-EV --> FE : [{event with role="editor"}, ...]
+EV --> FE : [{id, title, start_time_utc, ...}, ...]
 FE --> P : Shared events shown on calendar
 
 @enduml

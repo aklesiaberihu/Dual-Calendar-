@@ -67,19 +67,43 @@ export default function Login() {
     setError(""); setMsg(""); setLoading(true);
     try {
       if (mode === "register") {
+
+        if (!fullName.trim()) {
+          setError("Full name is required.");
+          setLoading(false);
+          return;
+        }
+        if (!email.trim()) {
+          setError("Email is required.");
+          setLoading(false);
+          return;
+        }
+        if (!password.trim() || password.length < 6) {
+          setError("Password must be at least 6 characters.");
+          setLoading(false);
+          return;
+        }
+
         await registerUser({
-          email, full_name: fullName, password,
-          preferred_calendar: "gregorian", timezone: "UTC", language: "en",
+          email: email.trim(),
+          full_name: fullName.trim(),
+          password,
+          preferred_calendar: "gregorian",
+          timezone: "UTC",
+          language: "en",
         });
         setMsg("Account created. You can now sign in.");
         setMode("login");
+        setEmail("");
+        setFullName("");
         setPassword("");
         setLoading(false);
         return;
       }
       const data = await loginUser(email, password);
       setToken(data.access_token);
-      nav("/app");
+
+      setTimeout(() => nav("/app"), 100);
     } catch (err) {
       setError(err.message || "Something went wrong. Please try again.");
     } finally {
@@ -100,7 +124,7 @@ export default function Login() {
 
   return (
     <div className="loginShell">
-      
+
       <div className="loginLeft">
         <div className="loginLeftInner">
           <div className="loginBrand">
@@ -121,7 +145,6 @@ export default function Login() {
         </div>
       </div>
 
-      
       <div className="loginRight">
         <div className="loginCard">
           <div className="loginCardHead">

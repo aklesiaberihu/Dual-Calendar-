@@ -18,6 +18,11 @@ class Event(Base):
     timezone = Column(String(64), default="UTC")
     reminder_minutes = Column(Integer, default=60)
 
+    recurrence_group_id = Column(String(36), nullable=True, index=True)
+    recurrence_rule = Column(String(16), nullable=True)
+    recurrence_interval = Column(Integer, nullable=True)
+    recurrence_byday = Column(String(64), nullable=True)
+
     created_at = Column(DateTime(timezone=False), server_default=func.now())
     updated_at = Column(DateTime(timezone=False), server_default=func.now(), onupdate=func.now())
 

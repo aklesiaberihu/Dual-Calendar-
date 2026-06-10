@@ -79,19 +79,18 @@ def ensure_google_connected(user: User):
         raise HTTPException(status_code=400, detail="Google Calendar is not connected")
 
 def ensure_calendar_scope(user: User):
-    """
-    Check that the stored token actually includes the calendar.events scope.
-    If not, the user connected Google before calendar permission was granted
-    and must disconnect + reconnect to re-consent.
-    """
+    
     scope = user.google_token_scope or ""
     if REQUIRED_CALENDAR_SCOPE not in scope:
+        state = secrets.token_urlsafe(32)
+        auth_url = build_google_auth_url(state)
         raise HTTPException(
-            status_code=400,
-            detail=(
-                "Google Calendar permission was not granted. "
-                "Please disconnect and reconnect Google in Settings to allow calendar access."
-            ),
+            status_code=401,
+            detail={
+                "error": "missing_calendar_scope",
+                "message": "Calendar scope missing - please re-authorize",
+                "auth_url": auth_url
+            },
         )
 
 def build_google_auth_url(state: str):
