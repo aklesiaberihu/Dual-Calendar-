@@ -1,121 +1,92 @@
 @startuml Zemen_EventLifecycle
-!define TITLE Event Lifecycle State Machine
-title TITLE
-skin rose
+!pragma layout smetana
+title Zemen — Event Lifecycle State Diagram
 
-' ─── STATE MACHINE 1: Event Entity Lifecycle ───────────────────────────────
-
-[*] --> Created : user creates event
-
-Created --> Active : start_time_utc <= now\n(event begins)
-
-Active --> Completed : end_time_utc <= now\n(event ends)
-
-Created --> Cancelled : user deletes\nwhile not started
-
-Active --> Cancelled : user deletes\nduring event
-
-Cancelled --> [*] : no further action
-
-Completed --> [*] : no further action
-
-note right of Created
-  Event persisted in DB
-  Participants can be added
-  Version = 1
-  Reminder fires at start_time_utc − reminder_minutes
-  (before event begins; logged in reminder_logs)
-end note
-
-note right of Active
-  start_time_utc <= now
-  Event is ongoing
-  Reminder already sent (fired before Active)
-  Version increments if edited
-end note
-
-note right of Completed
-  end_time_utc has passed
-  Snapshot retained for audit
-  Participants see as past
-end note
-
-note right of Cancelled
-  Hard DELETE from DB
-  Snapshots/participants cascade-deleted
-  (ondelete="CASCADE" on FK)
-  No notification sent
-end note
-
-note "**Archived state not implemented.**\nEvent model has no status column.\nDeletes are hard DELETEs.\n(aspirational / future scope)" as N_ARCHIVED
-
-' ─── STATE MACHINE 2: Repeat UI Form Flow (EventForm.jsx) ──────────────────
-
-state "Repeat UI Form" as RepeatUI {
-
-  [*] --> PresetView : EventForm mounted\n(new event only, !id)
-
-  state "PresetView" as PresetView {
-    state "Preset: Never" as S_NEVER
-    state "Preset: Active" as S_PRESET_ACTIVE
-    state "EndRepeat: Never" as S_END_NEVER
-    state "EndRepeat: On Date" as S_END_DATE
-
-    [*]              --> S_NEVER
-    S_NEVER          --> S_PRESET_ACTIVE  : user selects\nday/week/month/year preset
-    S_PRESET_ACTIVE  --> S_NEVER          : user selects Never
-    S_PRESET_ACTIVE  --> S_END_NEVER      : repeatPreset != "never"
-    S_END_NEVER      --> S_END_DATE       : user selects "On Date"
-    S_END_DATE       --> S_END_NEVER      : user selects "Never"
-
-    note right of S_END_DATE
-      InlineCalendar widget rendered
-      repeatUntilDate bound to selected cell
-      End Date display label updates live
-    end note
-  }
-
-  PresetView --> CustomPanel : user selects\n"Custom" preset\n(showCustomPanel = true)
-
-  state "CustomPanel" as CustomPanel {
-    state "FrequencySelect" as S_FREQ
-    state "IntervalWheel" as S_WHEEL
-    state "DayCheckboxes" as S_DAYS
-
-    [*]        --> S_FREQ
-    S_FREQ     --> S_WHEEL   : frequency confirmed
-    S_WHEEL    --> S_DAYS    : frequency = "weekly"
-    S_WHEEL    --> S_FREQ    : frequency != "weekly"\n(byday reset to [])
-    S_DAYS     --> S_WHEEL   : byday updated
-
-    note right of S_WHEEL
-      TwoColumnWheelPicker
-      scroll-snap, 3-item height
-      number + unit label per row
-    end note
-
-    note right of S_DAYS
-      Rendered only when frequency = "weekly"
-      Multi-select checkboxes (SUN..SAT)
-      Codes match backend byday expectation
-    end note
-  }
-
-  CustomPanel --> PresetView : user taps Back\n(showCustomPanel = false)
-
-  note right of RepeatUI
-    getRecurrencePayload() maps UI state
-    to backend fields on form submit:
-      preset "never"      → recurrence_rule: "none"
-      preset "every_day"   → rule: "daily",   interval: 1
-      preset "every_week"  → rule: "weekly",  interval: 1
-      preset "every_2_weeks" → rule: "weekly", interval: 2
-      preset "every_month" → rule: "monthly", interval: 1
-      preset "every_year"  → rule: "monthly", interval: 12  (no yearly in backend)
-      custom               → rule: daily|weekly|monthly, interval: wheel value
-      endRepeat "never"    → recurrence_end_count: 365  (backend cap: 1-365)
-      endRepeat "on_date"  → recurrence_end_until: repeatUntilDate
-  end note
+skinparam state {
+  BackgroundColor White
+  BorderColor #333333
+  FontName Arial
+  ArrowColor #555555
 }
+skinparam note {
+  BackgroundColor #FFFDE7
+  BorderColor #F9A825
+  FontName Arial
+}
+
+[*] --> Persisted : Owner calls POST /events\n(single or recurring series)
+
+state Persisted {
+  [*] --> Draft : event inserted\nversion = 1\nsnapshot saved
+  Draft : start_time_utc > now
+  Draft : reminder not yet sent
+}
+
+Persisted --> Ongoing : start_time_utc <= now\n(time-based transition,\nNOT stored in DB)
+
+state Ongoing {
+  [*] --> Running : event in progress
+  Running : start_time_utc <= now
+  Running : end_time_utc > now (or NULL)
+  Running : reminder already sent\n(if SMTP configured)
+}
+
+Ongoing --> Past : end_time_utc <= now\n(only if end_time_utc is NOT NULL;\nevents with NULL end_time_utc\nremain Ongoing indefinitely)
+
+state Past {
+  [*] --> Ended
+  Ended : end_time_utc < now
+  Ended : snapshots retained for audit
+  Ended : visible on calendar as\npast event
+}
+
+Persisted --> Deleted : Owner calls\nDELETE /events/{id}
+Ongoing --> Deleted  : Owner calls\nDELETE /events/{id}
+Past --> Deleted     : Owner calls\nDELETE /events/{id}
+
+Deleted --> [*]
+
+note right of Persisted
+  Created by POST /events.
+  version = 1, snapshot saved immediately.
+  Reminder scheduled: fires at
+  start_time_utc − reminder_minutes
+  (reminder_minutes default = 60).
+  Participants can be added via
+  POST /events/{id}/share.
+end note
+
+note right of Ongoing
+  Event is in progress.
+  Edits (PUT /events/{id}) still allowed
+  by owner or editor — version increments,
+  new snapshot saved after each edit.
+  Optimistic locking (version check) active.
+end note
+
+note right of Past
+  end_time_utc has passed.
+  Snapshots and participants are retained.
+  Diff (GET /events/{id}/diff) still available.
+  Hard DELETE still possible — removes event,
+  snapshots, and participants (CASCADE).
+end note
+
+note right of Deleted
+  Hard DELETE from PostgreSQL.
+  ON DELETE CASCADE removes:
+    event_snapshots, event_participants,
+    reminder_logs linked to this event.
+  No soft-delete or archive; data is gone.
+end note
+
+note bottom
+  **Implementation facts:**
+  • Event model has NO status column — states are temporal (derived from datetime comparisons).
+  • delete_event() in events.py is unconditional — requires only owner role, not any particular "state."
+  • Events with NULL end_time_utc never enter Past state.
+  • Recurrence series: multiple Event rows share recurrence_group_id (UUID).
+    DELETE /events/{id}/series with scope="all"|"from_here" removes the group.
+end note
 
 @enduml

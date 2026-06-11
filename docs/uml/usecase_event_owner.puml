@@ -1,0 +1,105 @@
+@startuml Zemen_EventOwnerUseCases
+!pragma layout smetana
+title Zemen — Use Case Diagram: Event Roles & Permissions
+
+skinparam actor {
+  BackgroundColor White
+  BorderColor #333333
+  FontName Arial
+}
+skinparam usecase {
+  BackgroundColor #EEF5FB
+  BorderColor #3498db
+  FontName Arial
+}
+skinparam ArrowColor #555555
+
+actor "Event Viewer\n(role = \"viewer\")" as Viewer
+actor "Event Editor\n(role = \"editor\")" as Editor
+actor "Event Owner\n(role = \"owner\",\ncreator of event)" as Owner
+
+Viewer <|-- Editor
+Editor <|-- Owner
+
+note right of Owner
+  Owner = the user who created the event
+  (event.user_id == current_user.id)
+  Enforced by require_owner() in events.py
+end note
+
+note right of Editor
+  Editor = shared participant with
+  role = "editor" in event_participants.
+  Enforced by require_editor_or_owner().
+end note
+
+note right of Viewer
+  Viewer = shared participant with
+  role = "viewer" in event_participants.
+  Read-only access.
+end note
+
+rectangle "Zemen Event Management" {
+
+  usecase "View Event Details\n(GET /events/{id})" as UC_ViewEvent
+  usecase "View Participants\n(GET /events/{id}/participants)" as UC_ViewParticipants
+  usecase "View Version History\n(GET /events/{id}/diff)" as UC_ViewHistory
+  usecase "View Recurrence Series\n(GET /events/{id}/series)" as UC_ViewSeries
+  usecase "Export Event to\nGoogle Calendar" as UC_ExportGoogle
+
+  usecase "Edit Event\n(PUT /events/{id})\n[version conflict → 409]" as UC_EditEvent
+  usecase "Check Scheduling\nConflicts\n(GET /events/{id}/conflicts)" as UC_CheckConflicts
+  usecase "Suggest Free Slots\n(GET /events/{id}/suggest)" as UC_SuggestSlots
+  usecase "Rank Candidate Slots\n(GET /events/{id}/rank)" as UC_RankSlots
+
+  usecase "Delete Event\n(DELETE /events/{id})" as UC_DeleteEvent
+  usecase "Delete Recurrence\nSeries\n(DELETE /events/{id}/series)" as UC_DeleteSeries
+  usecase "Share Event\n(POST /events/{id}/share)\n{email, role}" as UC_ShareEvent
+  usecase "Remove Participant\n(DELETE /events/{id}/\nparticipants/{user_id})" as UC_RemoveParticipant
+
+}
+
+Viewer --> UC_ViewEvent
+Viewer --> UC_ViewParticipants
+Viewer --> UC_ViewHistory
+Viewer --> UC_ViewSeries
+Viewer --> UC_ExportGoogle
+
+Editor --> UC_EditEvent
+Editor --> UC_CheckConflicts
+Editor --> UC_SuggestSlots
+Editor --> UC_RankSlots
+
+Owner --> UC_DeleteEvent
+Owner --> UC_DeleteSeries
+Owner --> UC_ShareEvent
+Owner --> UC_RemoveParticipant
+
+UC_RankSlots ..> UC_SuggestSlots  : <<includes>>
+UC_DeleteSeries ..> UC_DeleteEvent : <<extends>>
+
+note bottom of UC_EditEvent
+  Optimistic locking:
+  PUT body must include current version int.
+  If version mismatch → 409 VERSION_CONFLICT
+  with current_event in response body.
+  Force-save: PUT /events/{id}?force=true
+  bypasses version check.
+  Snapshot saved after every successful edit.
+end note
+
+note bottom of UC_ShareEvent
+  Owner specifies target user by email.
+  Role = "editor" or "viewer".
+  If participant already exists, role is updated.
+  Owner cannot share with themselves.
+end note
+
+note bottom of UC_DeleteSeries
+  scope query param:
+    "all"       → delete entire recurrence group
+    "from_here" → delete this occurrence onward
+  All events share recurrence_group_id (UUID).
+end note
+
+@enduml

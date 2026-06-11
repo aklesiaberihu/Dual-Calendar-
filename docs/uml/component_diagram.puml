@@ -25,10 +25,6 @@ skinparam interface {
 }
 skinparam linetype ortho
 
-' ─────────────────────────────────────────
-'  TIER 1: PRESENTATION LAYER (React Frontend)
-' ─────────────────────────────────────────
-
 component "🖥 React Frontend\n(Vite, Port 5173)" as FE_TIER {
   component "Welcome\nComponent" as FE_WELCOME
   component "Login\nComponent" as FE_LOGIN
@@ -41,7 +37,7 @@ component "🖥 React Frontend\n(Vite, Port 5173)" as FE_TIER {
   }
   component "Settings\nComponent" as FE_SETTINGS
   component "Date Conversion\nUI" as FE_CONVERT
-  --
+  component "Event Diff\nComponent" as FE_DIFF
   interface "IUserAuthClient" as IUA
   interface "IEventClient" as IEC
   component "Axios HTTP\nClient" as FE_HTTP
@@ -51,11 +47,8 @@ component "🖥 React Frontend\n(Vite, Port 5173)" as FE_TIER {
   FE_CALENDAR ..> IEC
   FE_EVENT_FORM ..> IEC
   FE_SETTINGS ..> IUA
+  FE_DIFF ..> IEC
 }
-
-' ─────────────────────────────────────────
-'  TIER 2: APPLICATION LAYER (FastAPI Backend)
-' ─────────────────────────────────────────
 
 component "🔧 FastAPI Backend\n(Python, Port 8000)" as APP_TIER {
 
@@ -135,10 +128,6 @@ component "🔧 FastAPI Backend\n(Python, Port 8000)" as APP_TIER {
   OAUTH_COMP ..> ISEC
 }
 
-' ─────────────────────────────────────────
-'  TIER 3: DATA LAYER (PostgreSQL)
-' ─────────────────────────────────────────
-
 component "🗄 SQLAlchemy ORM\n(Data Access Layer)" as ORM_TIER {
   interface "IUserDAO" as IUSER_DAO
   interface "IEventDAO" as IEVENT_DAO
@@ -154,18 +143,9 @@ component "🗄 SQLAlchemy ORM\n(Data Access Layer)" as ORM_TIER {
 
 database "🗃️ PostgreSQL 16\n(Port 5432)\n\n6 Tables:\n  users\n  events\n  event_participants\n  event_snapshots\n  holidays\n  reminder_logs\n\nIndexes & Constraints:\n  PK, FK (CASCADE),\n  UQ (email, event+user),\n  IX (user_id, start_time_utc,\n     resolved_date,\n     recurrence_group_id)" as DB_POSTGRES
 
-' ─────────────────────────────────────────
-'  EXTERNAL SERVICES
-' ─────────────────────────────────────────
-
 cloud "🔑 Google OAuth 2.0\naccounts.google.com" as GOOGLE_OAUTH
 
 cloud "📧 SMTP Server\n(Email Reminders)\n(TLS/STARTTLS)" as SMTP_SERVICE
-
-' ─────────────────────────────────────────
-'  INTER-TIER CONNECTIONS
-'  (Horizontal: Layer-to-Layer)
-' ─────────────────────────────────────────
 
 FE_HTTP --> IUA : uses
 FE_HTTP --> IEC : uses
@@ -177,7 +157,6 @@ FE_HTTP --> ISCHED_API
 FE_HTTP --> IHOLIDAY_API
 FE_HTTP --> IOAUTH_API
 
-' Backend to ORM (Vertical: App → Data)
 AUTH_COMP --> IUSER_DAO
 PROFILE_COMP --> IUSER_DAO
 EVENT_COMP --> IEVENT_DAO
@@ -186,7 +165,6 @@ HOLIDAY_COMP --> HOLIDAY_MODEL
 REMINDER_COMP --> IEVENT_DAO
 REMINDER_COMP --> LOG_MODEL
 
-' ORM to Database (Vertical: Data → Physical)
 IUSER_DAO ..> DB_POSTGRES : SQLAlchemy Session
 IEVENT_DAO ..> DB_POSTGRES : SQLAlchemy Session
 PARTICIPANT_MODEL ..> DB_POSTGRES
@@ -194,24 +172,22 @@ SNAPSHOT_MODEL ..> DB_POSTGRES
 HOLIDAY_MODEL ..> DB_POSTGRES
 LOG_MODEL ..> DB_POSTGRES
 
-' External Service Connections
 OAUTH_COMP --> GOOGLE_OAUTH : OAuth2 token\nexchange
 REMINDER_COMP --> SMTP_SERVICE : smtplib\n(TLS)
 
-' ─────────────────────────────────────────
-'  NOTES
-' ─────────────────────────────────────────
-
 note right of FE_TIER
   Responsive React 18 SPA
+  Pages: Welcome, Login, Calendar, EventForm,
+         Settings, Convert, EventDiff
   State management: React hooks
   API calls: axios + JWT bearer token
   Vite bundler for dev/prod
-  EventForm sub-components:
+  EventForm inline components (EventForm.jsx):
     TwoColumnWheelPicker — scroll-snap interval picker
     InlineCalendar — mini grid for repeat end-date
-    CustomRepeatPanel — frequency/byday configuration view
+    CustomRepeatPanel — frequency/byday configuration
     AppleSelect — floating dark-themed dropdown overlay
+  EventDiff: field-level version comparison viewer
 end note
 
 note right of APP_TIER
