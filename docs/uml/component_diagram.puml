@@ -1,4 +1,5 @@
 @startuml ZemenComponentDiagram
+!pragma layout smetana
 !define USECASE(x)=circle "x" as x
 !define COMPONENT(x)=component x
 

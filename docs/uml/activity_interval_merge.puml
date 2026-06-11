@@ -49,11 +49,15 @@ repeat while (more intervals?)
 
 repeat
   :Take next busy interval B;
-  if (B.start > cursor?) then (yes — there is a free gap)
-    :gaps.append((cursor, B.start));
-  else (no)
+  if (B.end <= window_start\nor B.start >= window_end?) then (yes — outside window, skip)
+  else (no — overlaps window)
+    :s_clamped = max(B.start, window_start)\ne_clamped = min(B.end, window_end);
+    if (s_clamped > cursor?) then (yes — free gap before this interval)
+      :gaps.append((cursor, s_clamped));
+    else (no)
+    endif
+    :cursor = max(cursor, e_clamped);
   endif
-  :cursor = max(cursor, B.end);
 repeat while (more busy intervals?)
 
 if (cursor < window_end?) then (yes)

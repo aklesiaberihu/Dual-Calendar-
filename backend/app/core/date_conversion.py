@@ -18,10 +18,6 @@ ETH_MONTHS = {
 }
 
 def _gregorian_to_eth_jdn(year: int, month: int, day: int):
-    # Pure-Python JDN fallback — used only when the library raises ValueError
-    # (which only happens when the result is Pagume / Ethiopian month 13,
-    # because the library internally tries to construct datetime.date(year, 13, day)
-    # and Python's stdlib rejects month > 12).
     a = (14 - month) // 12
     y = year + 4800 - a
     m = month + 12 * a - 3

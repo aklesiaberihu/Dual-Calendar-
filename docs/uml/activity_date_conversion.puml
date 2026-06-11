@@ -25,7 +25,11 @@ if (direction == "g2e"?) then (yes)
 
   |DateConversionService|
   :Call gregorian_to_ethiopian(g_date);
-  :Apply conversion algorithm\n(returns eth_year, eth_month, eth_day);
+  :Try EthiopianDateConverter.to_ethiopian();
+  if (ValueError raised?\n(result is Pagume / month 13)) then (yes)
+    :Fallback: _gregorian_to_eth_jdn()\n(pure JDN arithmetic — no date() constructor);
+  else (no)
+  endif
   :Look up month name\nfrom ETH_MONTHS dict;
   :Return {year, month, day, month_name};
 

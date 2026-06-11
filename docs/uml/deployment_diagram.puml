@@ -1,4 +1,5 @@
 @startuml Deployment_Diagram
+!pragma layout smetana
 title Zemen — UML Deployment Diagram
 
 skinparam node {

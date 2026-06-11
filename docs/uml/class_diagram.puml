@@ -1,4 +1,5 @@
 @startuml ZemenClassDiagram
+!pragma layout smetana
 !define ABSTRACT abstract
 !define INTERFACE interface
 title Zemen Dual Calendar — Enriched Class Diagram
@@ -150,6 +151,7 @@ class ReminderLog {
 class DateConversionService {
   - {static} ETH_MONTHS : dict
   --
+  - {static} _gregorian_to_eth_jdn(year: int, month: int, day: int) : tuple
   + {static} gregorian_to_ethiopian(g_date: date) : dict
   + {static} ethiopian_to_gregorian(year: int, month: int, day: int) : dict
 }
@@ -182,7 +184,6 @@ class SecurityService {
   + {static} hash_password(password: str) : str
   + {static} verify_password(plain: str, hashed: str) : bool
   + {static} create_access_token(subject: str) : str
-  + {static} get_current_user_email(authorization: str) : str
 }
 
 class ReminderService {
@@ -259,8 +260,8 @@ note right of EventParticipant
 end note
 
 note right of ReminderService
-  Background daemon thread service
-  Polls every 10s for due reminders
+  Background daemon thread (threading.Thread)
+  Polls every 10s via time.sleep(REMINDER_POLL_SECONDS)
   Sends via SMTP, logs sent status
   Reliability: uses proper logging module
 end note
