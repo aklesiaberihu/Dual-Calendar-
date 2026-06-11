@@ -31,7 +31,7 @@ Built by Aklesia Berihu Mekonnen and Meron Zemichael Kahsay — 4th Year Data An
 | Auth | JWT + Google OAuth 2.0 |
 | Email | SMTP (smtplib + TLS) |
 | Deployment | Docker Compose |
-| Testing | Pytest (139 tests) + Postman (117 assertions) |
+| Testing | Pytest (158 tests) + Postman (117 assertions) |
 
 ---
 
@@ -77,7 +77,7 @@ cd backend
 python3.12 -m pytest tests/ -v
 ```
 
-139 tests across 12 test files covering: authentication, date conversion edge cases, interval merging, ranking, scheduling pipeline, diff, reminders, security, input validation, and UTC storage.
+158 tests across 12 test files covering: authentication, date conversion edge cases (including Pagume/month 13), interval merging, ranking, scheduling pipeline, diff, reminders, security, input validation, and UTC storage.
 
 ---
 
