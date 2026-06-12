@@ -154,6 +154,8 @@ class DateConversionService {
   - {static} _gregorian_to_eth_jdn(year: int, month: int, day: int) : tuple
   + {static} gregorian_to_ethiopian(g_date: date) : dict
   + {static} ethiopian_to_gregorian(year: int, month: int, day: int) : dict
+  + {static} utc_to_local(utc_dt: datetime, timezone_str: str) : datetime
+  + {static} local_to_utc(local_dt: datetime, timezone_str: str) : datetime
 }
 
 class IntervalService {
@@ -162,6 +164,10 @@ class IntervalService {
   + {static} merge_intervals(intervals: List[Tuple]) : List[Tuple]
   + {static} find_gaps(window_start: datetime, window_end: datetime, busy: List[Tuple]) : List[Tuple]
   + {static} choose_slots(gaps: List[Tuple], duration_minutes: int, limit: int) : List[Tuple]
+  + {static} events_user_can_see(db: Session, user_id: int) : Query
+  + {static} holiday_intervals(db: Session, window_start: datetime, window_end: datetime) : List[Tuple]
+  + {static} busy_intervals_for_user(db: Session, user_id: int, window_start: datetime, window_end: datetime, exclude_event_id: int) : List[Tuple]
+  + {static} collect_busy_by_participants(db: Session, participant_ids: List[int], window_start: datetime, window_end: datetime, exclude_event_id: int) : Tuple[dict, List[Tuple]]
 }
 
 class RankingService {
@@ -184,6 +190,10 @@ class SecurityService {
   + {static} hash_password(password: str) : str
   + {static} verify_password(plain: str, hashed: str) : bool
   + {static} create_access_token(subject: str) : str
+  + {static} get_current_user(db: Session, email: str) : User
+  + {static} get_event_with_access(db: Session, user: User, event_id: int) : Tuple[Event, str]
+  + {static} require_editor_or_owner(role: str) : void
+  + {static} require_owner(role: str) : void
 }
 
 class ReminderService {
@@ -205,12 +215,20 @@ class SchedulingService {
   --
   + {static} event_end_time(start: datetime, end: Optional[datetime]) : datetime
   + {static} overlaps(a_start: datetime, a_end: datetime, b_start: datetime, b_end: datetime) : bool
+  + {static} serialize_event(event: Event) : dict
+  + {static} snapshot_event(db: Session, event: Event) : void
+  + {static} create_single_event(db: Session, user: User, payload: EventCreate) : dict
+  + {static} create_recurring_series(db: Session, user: User, payload: EventCreate) : dict
+  + {static} apply_event_update(db: Session, event: Event, payload: EventUpdate) : void
+  + {static} query_events(db: Session, user: User, q: str, timezone_filter: str, start_from: str, start_to: str, ownership: str, limit: int, offset: int) : List[Event]
 }
 
 class RecurrenceService {
   - {static} MAX_OCCURRENCES : int = 500
   - {static} WEEKDAY_MAP : dict
+  - {static} VALID_BYDAY : set
   --
+  + {static} validate_recurrence_params(end_type: str, end_count_raw: int, end_until_raw: str, byday_raw: str, start_date: date) : Tuple[int, date, list]
   + {static} expand_occurrences(frequency: str, interval: int, byday: list, end_type: str, end_count: int, end_until: date, base_start: datetime, duration: timedelta) : List[Tuple]
   + {static} detect_series_conflicts(occurrences: List[Tuple], db: Session, user_id: int) : List[dict]
 }
@@ -267,11 +285,13 @@ note right of ReminderService
 end note
 
 note right of DateConversionService
-  Pure algorithmic conversion
-  No I/O, testable in isolation
-  Used by: conversion router (/convert)
-  and holiday router (Ethiopian holidays)
-  UTC↔local is ZoneInfo, not this service
+  Handles two distinct conversion domains:
+  (1) Ethiopian↔Gregorian calendar conversion —
+      used by /convert and holiday routers.
+  (2) UTC↔local timezone conversion —
+      utc_to_local / local_to_utc used by
+      SchedulingService for event serialization
+      and UTC storage.
 end note
 
 note right of RecurrenceService

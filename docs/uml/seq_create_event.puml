@@ -9,6 +9,8 @@ actor       "Owner"          as O
 actor       "Participant"     as P
 participant "React Frontend"  as FE
 participant "FastAPI /events" as EV
+participant "SecurityService" as SEC
+participant "SchedulingService" as SCHED
 database    "PostgreSQL"      as DB
 
 == Create Event ==
@@ -26,22 +28,30 @@ note right of FE
   Custom panel uses TwoColumnWheelPicker + day checkboxes (daily/weekly/monthly only)
 end note
 FE -> EV : POST /events\nAuthorization: Bearer <token>
-EV -> EV : get_current_user (from JWT)
-note over EV : local_to_utc() converts start/end\nto UTC via ZoneInfo internally\n(not DateConversionService — that is\nfor Ethiopian↔Gregorian calendar only)
+EV -> SEC : get_current_user(email)
+SEC -> DB : SELECT * FROM users WHERE email=...
+DB --> SEC : User row
+SEC --> EV : User
 alt recurrence_rule == "none"
-  EV -> DB : INSERT INTO events\n(user_id, version=1, title, start_time_utc, ...)
-  DB --> EV : Event row (id=42)
-  EV -> DB : INSERT INTO event_snapshots\n(event_id=42, version=1, ...)
+  EV -> SCHED : create_single_event(db, user, payload)\n(local_to_utc via DateConversionService)
+  SCHED -> DB : INSERT INTO events\n(user_id, version=1, title, start_time_utc, ...)
+  DB --> SCHED : Event row (id=42)
+  SCHED -> DB : INSERT INTO event_snapshots\n(event_id=42, version=1, ...)
   note right : Snapshot saved for\nversion history / diff
-  DB --> EV : Snapshot row
+  DB --> SCHED : Snapshot row
+  SCHED --> EV : serialized event dict
   EV --> FE : 200 {id, title, version=1, ...}
 else recurrence_rule != "none"
-  EV -> EV : RecurrenceService.expand_occurrences()\nGenerates (start_local, end_local) tuples
-  EV -> EV : detect_series_conflicts(utc_occurrences, db, user_id)\nPre-insert conflict check — no rollback risk
+  EV -> SCHED : create_recurring_series(db, user, payload)
+  SCHED -> SCHED : RecurrenceService.validate_recurrence_params()
+  SCHED -> SCHED : RecurrenceService.expand_occurrences()\nGenerates (start_local, end_local) tuples
+  SCHED -> SCHED : DateConversionService.local_to_utc()\nConverts each occurrence to UTC
+  SCHED -> SCHED : RecurrenceService.detect_series_conflicts()\nPre-insert conflict check — no rollback risk
   loop for each occurrence
-    EV -> DB : INSERT INTO events\n(recurrence_group_id=UUID, rule, interval, byday, ...)
-    DB --> EV : Event row
+    SCHED -> DB : INSERT INTO events\n(recurrence_group_id=UUID, rule, interval, byday, ...)
+    DB --> SCHED : Event row
   end
+  SCHED --> EV : {id, recurrence_created: N, recurrence_conflicts: [...]}
   EV --> FE : 200 {id, recurrence_created: N, recurrence_conflicts: [...]}
 end
 FE --> O : Event(s) displayed on calendar

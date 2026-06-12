@@ -40,7 +40,7 @@ component "🖥 React Frontend\n(Vite, Port 5173)" as FE_TIER {
   component "Event Diff\nComponent" as FE_DIFF
   interface "IUserAuthClient" as IUA
   interface "IEventClient" as IEC
-  component "Axios HTTP\nClient" as FE_HTTP
+  component "Fetch API Client\n(native, api.js)" as FE_HTTP
   FE_HTTP - IUA
   FE_HTTP - IEC
   FE_LOGIN ..> IUA
@@ -82,7 +82,7 @@ component "🔧 FastAPI Backend\n(Python, Port 8000)" as APP_TIER {
   }
 
   ' Service Components (Business Logic)
-  component "🔐 Security Service\n(JWT, bcrypt)" as SEC_COMP {
+  component "🔐 Security Service\n(JWT, bcrypt, access control)" as SEC_COMP {
     interface "ISecurityService" as ISEC
   }
 
@@ -119,6 +119,8 @@ component "🔧 FastAPI Backend\n(Python, Port 8000)" as APP_TIER {
   AUTH_COMP ..> VALIDATION
   PROFILE_COMP ..> ISEC
   EVENT_COMP ..> VALIDATION
+  EVENT_COMP ..> ISEC
+  EVENT_COMP ..> IDCS
   EVENT_COMP ..> IRECUR
   EVENT_COMP ..> IDS
   SCHED_COMP ..> IIS
@@ -176,12 +178,12 @@ OAUTH_COMP --> GOOGLE_OAUTH : OAuth2 token\nexchange
 REMINDER_COMP --> SMTP_SERVICE : smtplib\n(TLS)
 
 note right of FE_TIER
-  Responsive React 18 SPA
+  Responsive React 19 SPA
   Pages: Welcome, Login, Calendar, EventForm,
          Settings, Convert, EventDiff
   State management: React hooks
-  API calls: axios + JWT bearer token
-  Vite bundler for dev/prod
+  API calls: Fetch API + JWT bearer token
+  Vite 7 bundler for dev/prod
   EventForm inline components (EventForm.jsx):
     TwoColumnWheelPicker — scroll-snap interval picker
     InlineCalendar — mini grid for repeat end-date
@@ -197,7 +199,7 @@ note right of APP_TIER
   Services are stateless, reusable
   ReminderService runs in background daemon thread
   RecurrenceService: expands rules into local-time occurrences
-  (caller converts to UTC via ZoneInfo)
+  (caller converts to UTC via DateConversionService.local_to_utc)
 end note
 
 note right of ORM_TIER

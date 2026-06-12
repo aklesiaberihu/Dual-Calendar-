@@ -1,4 +1,7 @@
-from datetime import date
+from datetime import date, datetime, timezone
+from typing import Optional
+from zoneinfo import ZoneInfo
+
 from ethiopian_date.ethiopian_date import EthiopianDateConverter
 
 ETH_MONTHS = {
@@ -17,6 +20,7 @@ ETH_MONTHS = {
     13: "Pagume",
 }
 
+
 def _gregorian_to_eth_jdn(year: int, month: int, day: int):
     a = (14 - month) // 12
     y = year + 4800 - a
@@ -30,6 +34,7 @@ def _gregorian_to_eth_jdn(year: int, month: int, day: int):
     eth_day   = n % 30 + 1
     return eth_year, eth_month, eth_day
 
+
 def gregorian_to_ethiopian(g_date: date) -> dict:
     try:
         out = EthiopianDateConverter.to_ethiopian(g_date.year, g_date.month, g_date.day)
@@ -41,6 +46,7 @@ def gregorian_to_ethiopian(g_date: date) -> dict:
         y, m, d = _gregorian_to_eth_jdn(g_date.year, g_date.month, g_date.day)
     return {"year": y, "month": m, "day": d, "month_name": ETH_MONTHS.get(m)}
 
+
 def ethiopian_to_gregorian(year: int, month: int, day: int) -> dict:
     out = EthiopianDateConverter.to_gregorian(year, month, day)
     if isinstance(out, tuple):
@@ -48,3 +54,21 @@ def ethiopian_to_gregorian(year: int, month: int, day: int) -> dict:
     else:
         y, m, d = out.year, out.month, out.day
     return {"year": y, "month": m, "day": d}
+
+
+def utc_to_local(utc_dt: Optional[datetime], timezone_str: str) -> Optional[datetime]:
+    if not utc_dt:
+        return None
+    try:
+        tz = ZoneInfo(timezone_str or "UTC")
+    except Exception:
+        tz = ZoneInfo("UTC")
+    return utc_dt.replace(tzinfo=timezone.utc).astimezone(tz).replace(tzinfo=None)
+
+
+def local_to_utc(local_dt: datetime, timezone_str: str) -> datetime:
+    try:
+        tz = ZoneInfo(timezone_str or "UTC")
+    except Exception:
+        raise ValueError(f"Invalid timezone: {timezone_str}")
+    return local_dt.replace(tzinfo=tz).astimezone(timezone.utc).replace(tzinfo=None)

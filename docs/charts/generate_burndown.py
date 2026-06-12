@@ -14,7 +14,7 @@ SPRINTS = [
     {
         "number": 1,
         "name": "Foundation & Authentication",
-        "dates": "Week 1  (Mar 10 – Mar 14, 2025)",
+        "dates": "Week 1  (Mar 10 – Mar 14, 2026)",
         "total": 16,
         "items": [
             ("PB-01  Secure Auth",       5),
@@ -30,7 +30,7 @@ SPRINTS = [
     {
         "number": 2,
         "name": "Date Conversion Engine & Event CRUD",
-        "dates": "Week 2  (Mar 17 – Mar 21, 2025)",
+        "dates": "Week 2  (Mar 17 – Mar 21, 2026)",
         "total": 24,
         "items": [
             ("PB-04  Ethiopian–Gregorian Conversion", 8),
@@ -45,7 +45,7 @@ SPRINTS = [
     {
         "number": 3,
         "name": "Collaboration, Scheduling Engine, & Reminders",
-        "dates": "Week 3  (Mar 24 – Mar 28, 2025)",
+        "dates": "Week 3  (Mar 24 – Mar 28, 2026)",
         "total": 55,
         "items": [
             ("PB-08  Role-Based Sharing",       8),
@@ -62,7 +62,7 @@ SPRINTS = [
     {
         "number": 4,
         "name": "Testing, UI Polish, & Deployment",
-        "dates": "Week 4  (Mar 31 – Apr 4, 2025)",
+        "dates": "Week 4  (Mar 31 – Apr 4, 2026)",
         "total": 21,
         "items": [
             ("PB-14  Google Calendar Export",         5),

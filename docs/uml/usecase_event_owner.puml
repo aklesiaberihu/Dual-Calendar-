@@ -24,7 +24,7 @@ Editor <|-- Owner
 note right of Owner
   Owner = the user who created the event
   (event.user_id == current_user.id)
-  Enforced by require_owner() in events.py
+  Enforced by require_owner() in app/core/security.py
 end note
 
 note right of Editor

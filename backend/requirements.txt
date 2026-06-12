@@ -9,11 +9,4 @@ python-multipart
 ethiopian-date-converter
 requests==2.32.3
 pytest==9.0.2
-# Fix passlib/bcrypt compatibility
-
-# Fix passlib/bcrypt compatibility
-
-# Fix passlib/bcrypt compatibility (passlib expects bcrypt.__about__)
-
-# Fix passlib/bcrypt compatibility (passlib expects bcrypt.__about__)
 bcrypt==3.2.2

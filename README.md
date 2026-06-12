@@ -25,13 +25,13 @@ Built by Aklesia Berihu Mekonnen and Meron Zemichael Kahsay — 4th Year Data An
 
 | Layer | Technology |
 |---|---|
-| Frontend | React 18, Vite, React Router v6 |
-| Backend | FastAPI (Python 3.12) |
-| Database | PostgreSQL 15 |
+| Frontend | React 19, Vite 7, React Router v7 |
+| Backend | FastAPI (Python 3.11) |
+| Database | PostgreSQL 16 |
 | Auth | JWT + Google OAuth 2.0 |
 | Email | SMTP (smtplib + TLS) |
 | Deployment | Docker Compose |
-| Testing | Pytest (158 tests) + Postman (117 assertions) |
+| Testing | Pytest (158 tests) + Postman (125 tests) |
 
 ---
 
@@ -74,10 +74,10 @@ docker compose up --build
 
 ```bash
 cd backend
-python3.12 -m pytest tests/ -v
+python3 -m pytest tests/ -v
 ```
 
-158 tests across 12 test files covering: authentication, date conversion edge cases (including Pagume/month 13), interval merging, ranking, scheduling pipeline, diff, reminders, security, input validation, and UTC storage.
+158 tests across 13 test files covering: authentication, date conversion edge cases (including Pagume/month 13), interval merging, ranking, scheduling pipeline, diff, reminders, security, input validation, and UTC storage.
 
 ---
 
@@ -98,7 +98,7 @@ python3.12 -m pytest tests/ -v
 │       └── pages/         # React page components
 ├── docs/
 │   ├── uml/               # PlantUML diagram source files
-│   └── final_report.md    # Final project report
+├── ZEMEN_FINAL_REPORT .docx  # Final project report
 ├── postman_collection.json # API integration test collection
 └── docker-compose.yml
 ```
@@ -113,4 +113,4 @@ Interactive API docs available at **http://localhost:8000/docs** when the backen
 
 ## Postman Collection
 
-Import `postman_collection.json` into Postman to run the full 117-assertion integration suite covering NFR-P1 (performance), NFR-S1 (role enforcement), and API endpoint validation. Set `base_url` to `http://localhost:8000` and run the collection top-to-bottom.
+Import `postman_collection.json` into Postman to run the full 125-test integration suite covering NFR-P1 (performance), NFR-S1 (role enforcement), and API endpoint validation. Set `base_url` to `http://localhost:8000` and run the collection top-to-bottom.
